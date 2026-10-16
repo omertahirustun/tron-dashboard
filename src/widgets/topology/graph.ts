@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react'
-import type { LiveSession } from '../../native/api'
+import type { SessionsSnapshot, SkillInfo } from '../../native/api'
 
 export type TronNodeData =
   | {
@@ -13,6 +13,18 @@ export type TronNodeData =
       live?: boolean
     }
   | { kind: 'note'; label: string; path: string; op?: 'read' | 'edit' | 'write'; live?: boolean }
+  | { kind: 'hub'; label: string; role: string }
+  | {
+      kind: 'skill'
+      label: string
+      name: string
+      source: string
+      description: string
+      /** used by a shown session */
+      used?: boolean
+      /** used in the last 30 s */
+      live?: boolean
+    }
 
 export type TronNodeType = Node<TronNodeData, 'tron'>
 export type DataEdgeType = Edge<{ flowing?: boolean }, 'data'>
@@ -49,6 +61,15 @@ export const SAMPLE_NODES: TronNodeType[] = [
   note('reading', 'reading list.md', 'vault/inbox/reading list.md', -90, 400),
   note('daily', '2026-10-16.md', 'vault/daily/2026-10-16.md', 210, 380),
   note('calendar', 'calendar-app.md', 'vault/projects/calendar-app.md', 210, -130),
+]
+
+const SAMPLE_SKILLS: SkillInfo[] = [
+  { name: 'frontend-design:frontend-design', source: 'frontend-design', short: 'frontend-design', description: 'Distinctive visual design for new UI.' },
+  { name: 'claude-api', source: 'built-in', short: 'claude-api', description: 'Claude API and Anthropic SDK reference.' },
+  { name: 'code-review', source: 'built-in', short: 'code-review', description: 'Review the current diff for bugs.' },
+  { name: 'dataviz', source: 'built-in', short: 'dataviz', description: 'Charts and dashboards that read as one system.' },
+  { name: 'anthropic-skills:pdf', source: 'anthropic-skills', short: 'pdf', description: 'Read, merge and create PDF files.' },
+  { name: 'anthropic-skills:docx', source: 'anthropic-skills', short: 'docx', description: 'Create and edit Word documents.' },
 ]
 
 export const SAMPLE_EDGES: DataEdgeType[] = [
@@ -98,15 +119,71 @@ function arc(count: number, from: number, to: number, r: number, stagger = 0) {
  * subagents on the arc below. Nodes that already exist keep their position, so
  * anything dragged by hand stays put when new activity arrives.
  */
-export function buildLiveGraph(sessions: LiveSession[], keep: Map<string, { x: number; y: number }>) {
+const SKILL_RING_START = 230
+const SKILL_RING_GAP = 120
+const SKILL_SPACING = 165 // centre-to-centre along a ring; chips are ~140 px wide
+
+/** Skills on rings around a hub, grouped by source so related ones sit together. */
+function skillCluster(
+  skills: SkillInfo[],
+  usage: Map<string, { used: boolean; live: boolean }>,
+  cx: number,
+  cy: number,
+  place: (id: string, x: number, y: number) => { x: number; y: number },
+) {
   const nodes: TronNodeType[] = []
   const edges: DataEdgeType[] = []
+  if (!skills.length) return { nodes, edges }
+  nodes.push({
+    id: HUB_ID,
+    type: 'tron',
+    position: place(HUB_ID, cx, cy),
+    data: { kind: 'hub', label: 'skills', role: `${skills.length} loaded` },
+  })
+  const sorted = [...skills].sort((a, b) => a.source.localeCompare(b.source) || a.short.localeCompare(b.short))
+  let i = 0
+  for (let ring = 0; i < sorted.length; ring++) {
+    const r = SKILL_RING_START + ring * SKILL_RING_GAP
+    const capacity = Math.max(6, Math.floor((2 * Math.PI * r) / SKILL_SPACING))
+    const count = Math.min(capacity, sorted.length - i)
+    for (let j = 0; j < count; j++, i++) {
+      // offset alternate rings by half a step so chips don't line up radially
+      const a = ((j + (ring % 2) * 0.5) / count) * 2 * Math.PI - Math.PI / 2
+      const k = sorted[i]
+      const u = usage.get(k.name)
+      const id = `skill:${k.name}`
+      nodes.push({
+        id,
+        type: 'tron',
+        position: place(id, cx + Math.cos(a) * r, cy + Math.sin(a) * r),
+        data: { kind: 'skill', label: k.short, name: k.name, source: k.source, description: k.description, used: u?.used, live: u?.live },
+      })
+      edges.push(link(HUB_ID, id))
+    }
+  }
+  return { nodes, edges }
+}
+
+export const HUB_ID = 'hub:skills'
+
+export function buildSampleGraph() {
+  const usage = new Map([['frontend-design:frontend-design', { used: true, live: false }]])
+  const cluster = skillCluster(SAMPLE_SKILLS, usage, 0, 760, (_, x, y) => ({ x, y }))
+  return {
+    nodes: [...SAMPLE_NODES, ...cluster.nodes],
+    edges: [...SAMPLE_EDGES, ...cluster.edges, link('Claude_Prime', 'skill:frontend-design:frontend-design')],
+  }
+}
+
+export function buildLiveGraph({ sessions, skills }: SessionsSnapshot, keep: Map<string, { x: number; y: number }>) {
+  const nodes: TronNodeType[] = []
+  const edges: DataEdgeType[] = []
+  const place = (id: string, x: number, y: number) => keep.get(id) ?? { x, y }
   const cols = sessions.length <= 2 ? 1 : 2
   sessions.forEach((s, i) => {
     const cx = (i % cols) * BLOCK_W
     const cy = Math.floor(i / cols) * BLOCK_H
     const sid = `session:${s.id}`
-    const place = (id: string, x: number, y: number) => keep.get(id) ?? { x, y }
     nodes.push({
       id: sid,
       type: 'tron',
@@ -140,5 +217,24 @@ export function buildLiveGraph(sessions: LiveSession[], keep: Map<string, { x: n
       edges.push(link(sid, id, a.live))
     })
   })
+
+  // skills: one cluster below a single session, or to the right of several,
+  // whichever fits the tall topology panel better
+  const usage = new Map<string, { used: boolean; live: boolean }>()
+  for (const s of sessions)
+    for (const u of s.skillsUsed) {
+      const prev = usage.get(u.name)
+      usage.set(u.name, { used: true, live: !!prev?.live || u.live })
+    }
+  const rows = Math.ceil(sessions.length / cols)
+  const below = sessions.length <= 1
+  const hub = below ? { x: 0, y: rows * BLOCK_H + 260 } : { x: cols * BLOCK_W + 380, y: ((rows - 1) * BLOCK_H) / 2 }
+  const cluster = skillCluster(skills, usage, hub.x, hub.y, place)
+  nodes.push(...cluster.nodes)
+  edges.push(...cluster.edges)
+  // which session used which skill
+  for (const s of sessions)
+    for (const u of s.skillsUsed)
+      if (skills.some((k) => k.name === u.name)) edges.push(link(`session:${s.id}`, `skill:${u.name}`, u.live))
   return { nodes, edges }
 }

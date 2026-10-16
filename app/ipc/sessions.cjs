@@ -1,6 +1,8 @@
 // Live Claude Code activity for the topology graph, from the transcripts in
-// ~/.claude/projects: recent sessions, their subagents (subagents/*.meta.json)
-// and the files they touched. Transcripts are read incrementally.
+// ~/.claude/projects: recent sessions, their subagents (subagents/*.meta.json),
+// the files they touched, the skills they used, and the full list of loaded
+// skills (Claude Code records it as a `skill_listing` attachment). Transcripts
+// are read incrementally.
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -16,6 +18,30 @@ const FILE_TOOLS = { Read: 'read', Edit: 'edit', MultiEdit: 'edit', Write: 'writ
 const SKIP_FILE = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|webm)$/i
 const SKIP_DIR = /^\/tmp\//
 
+/**
+ * `content` is "- name: description" entries, one per skill; descriptions can
+ * span lines, so each one runs until the next known name starts.
+ */
+function parseListing({ names, content }) {
+  return names.map((name) => {
+    const marker = `- ${name}: `
+    const start = content.indexOf(marker)
+    let description = ''
+    if (start >= 0) {
+      const from = start + marker.length
+      const next = content.indexOf('\n- ', from)
+      description = content.slice(from, next < 0 ? undefined : next).trim()
+    }
+    const colon = name.indexOf(':')
+    return {
+      name,
+      source: colon > 0 ? name.slice(0, colon) : 'built-in',
+      short: colon > 0 ? name.slice(colon + 1) : name,
+      description: description.split('\n')[0].slice(0, 300),
+    }
+  })
+}
+
 function createSessions(emit, intervalMs = 5000) {
   /** transcript path -> parsed state */
   const cache = new Map()
@@ -25,7 +51,18 @@ function createSessions(emit, intervalMs = 5000) {
   function parse(file, stat) {
     let s = cache.get(file)
     if (!s) {
-      s = { offset: 0, id: path.basename(file, '.jsonl'), title: null, cwd: null, branch: null, model: null, lastAt: 0, files: new Map() }
+      s = {
+        offset: 0,
+        id: path.basename(file, '.jsonl'),
+        title: null,
+        cwd: null,
+        branch: null,
+        model: null,
+        lastAt: 0,
+        files: new Map(),
+        skillsUsed: new Map(), // skill name -> last use
+        listing: null, // { names, content, at }
+      }
       cache.set(file, s)
     }
     if (stat.size <= s.offset) return s
@@ -45,6 +82,9 @@ function createSessions(emit, intervalMs = 5000) {
           continue
         }
         if (rec.type === 'ai-title' && rec.aiTitle) s.title = rec.aiTitle
+        const att = rec.attachment
+        if (att?.type === 'skill_listing' && Array.isArray(att.names))
+          s.listing = { names: att.names, content: String(att.content ?? ''), at: Date.parse(rec.timestamp) || 0 }
         if (rec.cwd) s.cwd = rec.cwd
         if (rec.gitBranch) s.branch = rec.gitBranch
         const at = Date.parse(rec.timestamp)
@@ -56,6 +96,8 @@ function createSessions(emit, intervalMs = 5000) {
             const op = block?.type === 'tool_use' && FILE_TOOLS[block.name]
             const p = op && (block.input?.file_path ?? block.input?.notebook_path)
             if (typeof p === 'string' && !SKIP_FILE.test(p) && !SKIP_DIR.test(p)) s.files.set(p, { path: p, op, at: at || Date.now() })
+            if (block?.type === 'tool_use' && block.name === 'Skill' && typeof block.input?.skill === 'string')
+              s.skillsUsed.set(block.input.skill, at || Date.now())
           }
         }
       }
@@ -134,18 +176,29 @@ function createSessions(emit, intervalMs = 5000) {
         live: now - lastAt < LIVE_MS,
         files: [...s.files.values()].sort((a, b) => b.at - a.at).slice(0, MAX_FILES),
         subagents: subagents(file, now),
+        skillsUsed: [...s.skillsUsed].map(([name, at]) => ({ name, at, live: now - at < LIVE_MS })),
       }
     })
+    // the newest skill listing among the shown sessions is what is loaded now
+    const listing = recent
+      .slice(0, MAX_SESSIONS)
+      .map(({ file }) => cache.get(file)?.listing)
+      .filter(Boolean)
+      .sort((a, b) => b.at - a.at)[0]
+    const skills = listing ? parseListing(listing) : []
     // only push when something visible changed
-    const json = JSON.stringify(sessions.map((s) => ({ ...s, lastAt: undefined, subagents: s.subagents.map((a) => ({ ...a, lastAt: undefined })) })))
+    const json = JSON.stringify([
+      sessions.map((s) => ({ ...s, lastAt: undefined, subagents: s.subagents.map((a) => ({ ...a, lastAt: undefined })) })),
+      skills.map((k) => k.name),
+    ])
+    latest = { sessions, skills }
     if (json !== lastJson) {
       lastJson = json
-      emit('sessions:update', sessions)
+      emit('sessions:update', latest)
     }
-    latest = sessions
   }
 
-  let latest = []
+  let latest = { sessions: [], skills: [] }
   return {
     start() {
       if (timer) return

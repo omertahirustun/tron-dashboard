@@ -14,41 +14,48 @@ import { useEffect, useRef, useState } from 'react'
 import { TronButton } from '../../components/TronButton'
 import { Widget } from '../../components/Widget'
 import { sfx } from '../../lib/sfx'
-import { native, type LiveSession } from '../../native/api'
+import { native, type SessionsSnapshot } from '../../native/api'
 import { readFileToLog } from '../../services/files'
 import { useOfficeStore } from '../../store/useOfficeStore'
 import { DataEdge } from './DataEdge'
-import { buildLiveGraph, SAMPLE_EDGES, SAMPLE_NODES, type DataEdgeType, type TronNodeType } from './graph'
+import { buildLiveGraph, buildSampleGraph, type DataEdgeType, type TronNodeType } from './graph'
 import { TronNode } from './TronNode'
+import { useNeighborDrag } from './useNeighborDrag'
 
 const nodeTypes = { tron: TronNode }
 const edgeTypes = { data: DataEdge }
 
 function Graph() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<TronNodeType>(native ? [] : SAMPLE_NODES)
-  const [edges, setEdges] = useState<DataEdgeType[]>(native ? [] : SAMPLE_EDGES)
+  const [sample] = useState(() => (native ? null : buildSampleGraph()))
+  const [nodes, setNodes, onNodesChange] = useNodesState<TronNodeType>(sample?.nodes ?? [])
+  const [edges, setEdges] = useState<DataEdgeType[]>(sample?.edges ?? [])
   const [loaded, setLoaded] = useState(!native)
   const { fitView } = useReactFlow()
   const box = useRef<HTMLDivElement>(null)
   const measured = useNodesInitialized()
-  // latest node positions, so a rebuild keeps whatever was dragged by hand
+  // latest nodes/edges for rebuilds (keep dragged positions) and drag physics
   const nodesRef = useRef(nodes)
+  const edgesRef = useRef(edges)
   useEffect(() => {
     nodesRef.current = nodes
-  }, [nodes])
+    edgesRef.current = edges
+  }, [nodes, edges])
+  const drag = useNeighborDrag(setNodes, nodesRef, edgesRef)
+  const [, setSkillCount] = useState(0)
 
   // desktop: rebuild the graph from live Claude Code sessions
   useEffect(() => {
     if (!native) return
-    const apply = (sessions: LiveSession[]) => {
+    const apply = (snapshot: SessionsSnapshot) => {
       const keep = new Map(nodesRef.current.map((n) => [n.id, n.position]))
-      const graph = buildLiveGraph(sessions, keep)
+      const graph = buildLiveGraph(snapshot, keep)
       setNodes(graph.nodes)
       setEdges(graph.edges)
       setLoaded(true)
       useOfficeStore.getState().setAgentOptions(
         graph.nodes.filter((n) => n.data.kind === 'agent').map((n) => ({ id: n.id, label: n.data.label })),
       )
+      setSkillCount(snapshot.skills.length)
     }
     void native.getSessions().then(apply)
     return native.onSessions(apply)
@@ -84,6 +91,16 @@ function Graph() {
   const onNodeClick: NodeMouseHandler<TronNodeType> = (_, node) => {
     const { addTerminalLog, setActiveAgent, selectFile, workspaceRoots, setActiveRoot } = useOfficeStore.getState()
     sfx.emit('select', { source: 'topology.node', node: node.id })
+    if (node.data.kind === 'hub') {
+      addTerminalLog(`[LOG] ${node.data.role.replace(' loaded', '')} skills loaded in Claude Code`, { source: 'topology' })
+      return
+    }
+    if (node.data.kind === 'skill') {
+      const { name, description, used } = node.data
+      addTerminalLog(`[SKILL] ${name}${used ? ' (used this session)' : ''}`, { source: 'topology', level: 'ok' })
+      if (description) addTerminalLog(`  │ ${description.length > 160 ? `${description.slice(0, 160)}…` : description}`, { source: 'topology' })
+      return
+    }
     if (node.data.kind === 'agent') {
       setActiveAgent(node.id)
       addTerminalLog(`[LOG] Linked to agent: ${node.data.label}${node.data.role ? ` (${node.data.role})` : ''}`, { source: 'topology', level: 'ok' })
@@ -109,6 +126,9 @@ function Graph() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={onNodeClick}
+        onNodeDragStart={drag.onNodeDragStart}
+        onNodeDrag={drag.onNodeDrag}
+        onNodeDragStop={drag.onNodeDragStop}
         nodeOrigin={[0.5, 0.5]}
         fitView
         fitViewOptions={{ padding: 0.15 }}

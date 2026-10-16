@@ -100,6 +100,21 @@ export interface LiveSession {
   live: boolean
   files: Array<{ path: string; op: 'read' | 'edit' | 'write'; at: number }>
   subagents: Array<{ id: string; description: string; agentType: string; model: string | null; lastAt: number; live: boolean }>
+  skillsUsed: Array<{ name: string; at: number; live: boolean }>
+}
+
+export interface SkillInfo {
+  /** full name as Claude Code lists it, e.g. "frontend-design:frontend-design" */
+  name: string
+  /** plugin or group before the colon, or "built-in" */
+  source: string
+  short: string
+  description: string
+}
+
+export interface SessionsSnapshot {
+  sessions: LiveSession[]
+  skills: SkillInfo[]
 }
 
 type Unsubscribe = () => void
@@ -141,8 +156,8 @@ export interface NativeApi {
   setDailyBudget(usd: number): Promise<ClaudeStats>
   onClaudeStats(cb: (stats: ClaudeStats) => void): Unsubscribe
 
-  getSessions(): Promise<LiveSession[]>
-  onSessions(cb: (sessions: LiveSession[]) => void): Unsubscribe
+  getSessions(): Promise<SessionsSnapshot>
+  onSessions(cb: (snapshot: SessionsSnapshot) => void): Unsubscribe
 }
 
 declare global {
