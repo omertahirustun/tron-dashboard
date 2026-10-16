@@ -16,6 +16,7 @@ const { createMetricsStream } = require('./ipc/metrics.cjs')
 const { createTasks } = require('./ipc/tasks.cjs')
 const { createNetworkMonitor } = require('./ipc/network.cjs')
 const { createClaudeUsage } = require('./ipc/claude-usage.cjs')
+const { createSessions } = require('./ipc/sessions.cjs')
 
 // The Ozone platform can only be picked on the command line: relaunch under XWayland if needed.
 if (process.platform === 'linux' && !process.env.AOD_NO_NVIDIA && !process.argv.includes('--ozone-platform=x11')) {
@@ -68,6 +69,7 @@ function registerIpc() {
   const tasks = createTasks(settings, send)
   const network = createNetworkMonitor(settings, send)
   const claude = createClaudeUsage(settings, send)
+  const sessions = createSessions(send)
 
   handle('workspace:roots', () => workspace.roots())
   handle('workspace:add-root', (p) => settings.addRoot(p))
@@ -103,6 +105,9 @@ function registerIpc() {
   })
   claude.start()
 
+  handle('sessions:latest', () => sessions.latest())
+  sessions.start()
+
   app.on('before-quit', () => {
     pty.kill()
     git.closeAll()
@@ -110,6 +115,7 @@ function registerIpc() {
     tasks.stopAll()
     network.stop()
     claude.stop()
+    sessions.stop()
   })
 }
 

@@ -30,11 +30,24 @@ export interface ChatMessage {
   streaming?: boolean
 }
 
-export type AgentId = 'Claude_Prime' | 'Agent_Beta' | 'Haiku_Scout'
+/** An agent the chat can address: a topology node (session, subagent or sample agent). */
+export interface AgentOption {
+  id: string
+  label: string
+}
+
+const SAMPLE_AGENTS: AgentOption[] = [
+  { id: 'Claude_Prime', label: 'Claude_Prime' },
+  { id: 'Agent_Beta', label: 'Agent_Beta' },
+  { id: 'Haiku_Scout', label: 'Haiku_Scout' },
+]
 
 interface OfficeState {
   terminalLogs: LogEntry[]
-  activeAgent: AgentId
+  /** topology node id of the agent the chat talks to */
+  activeAgent: string
+  activeAgentLabel: string
+  agentOptions: AgentOption[]
   systemMetrics: SystemMetrics
   taskQueue: Task[]
   chat: ChatMessage[]
@@ -53,7 +66,8 @@ interface OfficeState {
   clearTerminalLogs: () => void
   updateSystemMetrics: (next: SystemMetrics | ((prev: SystemMetrics) => SystemMetrics)) => void
   setTaskStatus: (id: string, status: TaskStatus) => void
-  setActiveAgent: (agent: AgentId) => void
+  setActiveAgent: (id: string) => void
+  setAgentOptions: (options: AgentOption[]) => void
   selectFile: (path: string) => void
   setWorkspaceRoots: (roots: WorkspaceRoot[]) => void
   setActiveRoot: (root: string) => void
@@ -80,6 +94,8 @@ const stamp = () => new Date().toLocaleTimeString('en-GB', { hour12: false })
 export const useOfficeStore = create<OfficeState>()((set) => ({
   terminalLogs: [],
   activeAgent: 'Claude_Prime',
+  activeAgentLabel: 'Claude_Prime',
+  agentOptions: SAMPLE_AGENTS,
   systemMetrics: initialMetrics(),
   // browser sample; the desktop app replaces it with real tasks from settings.json
   taskQueue: [
@@ -122,7 +138,14 @@ export const useOfficeStore = create<OfficeState>()((set) => ({
       ),
     })),
 
-  setActiveAgent: (agent) => set({ activeAgent: agent }),
+  setActiveAgent: (id) =>
+    set((s) => ({ activeAgent: id, activeAgentLabel: s.agentOptions.find((a) => a.id === id)?.label ?? id })),
+  // keep the current agent while it still exists, else fall back to the first one
+  setAgentOptions: (options) =>
+    set((s) => {
+      const keep = options.find((a) => a.id === s.activeAgent) ?? options[0]
+      return { agentOptions: options, activeAgent: keep?.id ?? '', activeAgentLabel: keep?.label ?? '' }
+    }),
   selectFile: (path) => set({ selectedFile: path }),
   setWorkspaceRoots: (roots) =>
     set((s) => ({

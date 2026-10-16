@@ -19,6 +19,7 @@ import { Widget } from '../components/Widget'
 import { parentPaths, TREE, type TreeNode } from '../data/workspace'
 import { sfx } from '../lib/sfx'
 import { native, type DirEntry } from '../native/api'
+import { readFileToLog } from '../services/files'
 import { useOfficeStore } from '../store/useOfficeStore'
 
 // Desktop app: real folders from the workspace roots, loaded one level at a
@@ -68,18 +69,6 @@ function flatten(children: Map<string, Entry[]>, expanded: Set<string>, key = ''
       ? [row, ...flatten(children, expanded, entry.path, depth + 1, entry.path)]
       : [row]
   })
-}
-
-const humanSize = (b: number) => (b < 1024 ? `${b} B` : b < 1024 ** 2 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 ** 2).toFixed(1)} MB`)
-
-/** First few meaningful lines of a file, for the terminal log. */
-function snippet(content: string, lines = 5) {
-  return content
-    .split('\n')
-    .map((l) => l.trimEnd())
-    .filter((l) => l.trim() && !/^---\s*$/.test(l))
-    .slice(0, lines)
-    .map((l) => (l.length > 110 ? `${l.slice(0, 110)}…` : l))
 }
 
 export function FileExplorer() {
@@ -139,14 +128,22 @@ export function FileExplorer() {
     void loadRoots()
   }, [workspaceRev])
 
-  // reveal files selected elsewhere (e.g. a note node in the topology graph):
-  // open their folders while rendering, then scroll the row into view
+  // reveal files selected elsewhere (e.g. a file node in the topology graph):
+  // open their folders while rendering (only folders inside the tree), load
+  // the ones not read yet, then scroll the row into view
   const [revealed, setRevealed] = useState(selected)
   if (revealed !== selected) {
     setRevealed(selected)
-    const missing = parentPaths(selected).filter((p) => p && !expanded.has(p))
+    const inTree = (p: string) => (native ? roots.some((r) => p === r.path || p.startsWith(r.path + '/')) : !!p)
+    const missing = parentPaths(selected).filter((p) => inTree(p) && !expanded.has(p))
     if (missing.length) setExpanded(new Set([...expanded, ...missing]))
   }
+  useEffect(() => {
+    if (!native) return
+    const dirs = parentPaths(selected).filter((p) => roots.some((r) => p === r.path || p.startsWith(r.path + '/')))
+    ensureLoaded(dirs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the selection changes
+  }, [selected])
 
   useEffect(() => {
     // scroll only the list; scrollIntoView would also move the page
@@ -175,30 +172,9 @@ export function FileExplorer() {
 
   const rootOf = (path: string) => roots.find((r) => path === r.path || path.startsWith(r.path + '/'))?.path
 
-  async function openFile(entry: Entry) {
-    const { addTerminalLog } = useOfficeStore.getState()
+  function openFile(entry: Entry) {
     sfx.emit('select', { source: 'explorer.file', path: entry.path })
-    if (!native) {
-      addTerminalLog(`[LOG] Opened file: ${entry.name}`, { source: 'explorer' })
-      return
-    }
-    try {
-      const file = await native.readFile(entry.path)
-      if (file.binary) {
-        addTerminalLog(`[LOG] ${entry.name} is a binary file (${humanSize(file.size)})`, { source: 'fs', level: 'warn' })
-        return
-      }
-      const lines = snippet(file.content)
-      const count = file.content.split('\n').length
-      addTerminalLog(`[LOG] Read ${entry.name} (${humanSize(file.size)}, ${count}${file.truncated ? '+' : ''} lines)`, {
-        source: 'fs',
-        level: 'ok',
-      })
-      for (const l of lines) addTerminalLog(`  │ ${l}`, { source: 'fs' })
-      if (!lines.length) addTerminalLog('  │ (empty file)', { source: 'fs' })
-    } catch (e) {
-      addTerminalLog(`[ERR] ${entry.name}: ${(e as Error).message}`, { source: 'fs', level: 'error' })
-    }
+    void readFileToLog(entry.path, entry.name)
   }
 
   const activate = (row: Row) => {
@@ -207,7 +183,7 @@ export function FileExplorer() {
     const root = rootOf(row.entry.path)
     if (root) setActiveRoot(root)
     if (row.entry.kind === 'dir') toggle(row.entry.path)
-    else void openFile(row.entry)
+    else openFile(row.entry)
   }
 
   const focusRow = (path: string) => {

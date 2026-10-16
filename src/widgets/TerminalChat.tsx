@@ -7,11 +7,10 @@ import { useDashboard } from '../layout/DashboardContext'
 import { sfx } from '../lib/sfx'
 import { native } from '../native/api'
 import { streamReply } from '../services/claude'
-import { useOfficeStore, type AgentId, type ChatModel, type LogLevel } from '../store/useOfficeStore'
+import { useOfficeStore, type ChatModel, type LogLevel } from '../store/useOfficeStore'
 import { ShellView } from './terminal/ShellView'
 
 const PROMPT = 'OMERTAHIRUSTUN@AGENT-OFFICE:~$ '
-const AGENTS: AgentId[] = ['Claude_Prime', 'Agent_Beta', 'Haiku_Scout']
 
 const MODEL_LABEL: Record<ChatModel, string> = {
   'claude-opus-5-5': 'Opus 5.5',
@@ -46,7 +45,7 @@ export function TerminalChat() {
   const { setLocked, resetLayout } = useDashboard()
   const lines = useOfficeStore((s) => s.terminalLogs)
   const messages = useOfficeStore((s) => s.chat)
-  const activeAgent = useOfficeStore((s) => s.activeAgent)
+  const activeAgent = useOfficeStore((s) => s.activeAgentLabel)
   const chatModel = useOfficeStore((s) => s.chatModel)
   const [mode, setMode] = useState<Mode>(native ? 'shell' : 'claude')
   const [pane, setPane] = useState<Pane>(native ? 'shell' : 'logs')
@@ -114,7 +113,7 @@ export function TerminalChat() {
 
   function ask(prompt: string) {
     const { addChatMessage, appendToChatMessage, finishChatMessage } = useOfficeStore.getState()
-    const agent = useOfficeStore.getState().activeAgent
+    const agent = useOfficeStore.getState().activeAgentLabel
     addChatMessage({ role: 'user', text: prompt })
     // empty streaming message = "typing" indicator until the first words arrive
     const replyId = addChatMessage({ role: 'claude', text: '', streaming: true })
@@ -207,10 +206,15 @@ export function TerminalChat() {
         return
       }
       case 'agent': {
-        const agent = AGENTS.find((a) => a.toLowerCase() === (args[0] ?? '').toLowerCase())
-        if (!agent) return out(`usage: :agent ${AGENTS.join(' | ')}`, 'warn')
-        store.setActiveAgent(agent)
-        out(`[LOG] Linked to agent: ${agent}`, 'ok')
+        const q = args.join(' ').toLowerCase()
+        if (!q) {
+          for (const a of store.agentOptions) out(`${a.id === store.activeAgent ? '›' : ' '} ${a.label}`)
+          return
+        }
+        const agent = store.agentOptions.find((a) => a.label.toLowerCase() === q) ?? store.agentOptions.find((a) => a.label.toLowerCase().includes(q))
+        if (!agent) return out(`no agent matches "${q}"; :agent lists them`, 'warn')
+        store.setActiveAgent(agent.id)
+        out(`[LOG] Linked to agent: ${agent.label}`, 'ok')
         return
       }
       case 'workspace': {

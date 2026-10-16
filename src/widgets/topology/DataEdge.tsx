@@ -10,8 +10,8 @@ function center(node: ReturnType<typeof useInternalNode>) {
   return { x: x + (node.measured.width ?? 0) / 2, y: y + (node.measured.height ?? 0) / 2 }
 }
 
-/** Straight centre-to-centre line; while the agent replies, a dashed flow and travelling data packets. */
-function DataEdgeImpl({ id, source, target }: EdgeProps<DataEdgeType>) {
+/** Straight centre-to-centre line; while an agent works, a dashed flow and travelling data packets. */
+function DataEdgeImpl({ id, source, target, data }: EdgeProps<DataEdgeType>) {
   const reduce = useReducedMotion()
   const a = center(useInternalNode(source))
   const b = center(useInternalNode(target))
@@ -19,8 +19,9 @@ function DataEdgeImpl({ id, source, target }: EdgeProps<DataEdgeType>) {
   const replying = useOfficeStore((s) => s.chat.some((m) => m.streaming))
   if (!a || !b) return null
 
-  const live = source === activeAgent || target === activeAgent
-  const hot = live && replying
+  const live = source === activeAgent || target === activeAgent || !!data?.flowing
+  // flowing = the agent at either end is working right now
+  const hot = !!data?.flowing || (live && replying)
   const color = hot ? 'var(--color-orange)' : 'var(--color-cyan)'
   const path = `M ${a.x},${a.y} L ${b.x},${b.y}`
   const length = Math.hypot(b.x - a.x, b.y - a.y)

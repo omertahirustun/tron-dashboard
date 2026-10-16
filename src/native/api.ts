@@ -89,6 +89,19 @@ export interface ClaudeStats {
   models: Array<{ id: string; label: string; window: number; input: number; output: number }>
 }
 
+export interface LiveSession {
+  id: string
+  title: string
+  project: string | null
+  cwd: string | null
+  branch: string | null
+  model: string | null
+  lastAt: number
+  live: boolean
+  files: Array<{ path: string; op: 'read' | 'edit' | 'write'; at: number }>
+  subagents: Array<{ id: string; description: string; agentType: string; model: string | null; lastAt: number; live: boolean }>
+}
+
 type Unsubscribe = () => void
 
 export interface NativeApi {
@@ -127,6 +140,9 @@ export interface NativeApi {
   getClaudeStats(): Promise<ClaudeStats>
   setDailyBudget(usd: number): Promise<ClaudeStats>
   onClaudeStats(cb: (stats: ClaudeStats) => void): Unsubscribe
+
+  getSessions(): Promise<LiveSession[]>
+  onSessions(cb: (sessions: LiveSession[]) => void): Unsubscribe
 }
 
 declare global {

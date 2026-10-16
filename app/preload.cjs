@@ -53,4 +53,8 @@ contextBridge.exposeInMainWorld('api', {
   getClaudeStats: () => ipcRenderer.invoke('claude:stats'),
   setDailyBudget: (usd) => ipcRenderer.invoke('claude:set-budget', usd),
   onClaudeStats: (cb) => listen('claude:stats', cb),
+
+  // live Claude Code sessions, subagents and touched files (topology)
+  getSessions: () => ipcRenderer.invoke('sessions:latest'),
+  onSessions: (cb) => listen('sessions:update', cb),
 })

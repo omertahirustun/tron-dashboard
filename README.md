@@ -38,6 +38,8 @@ A launcher is installed at `~/.local/share/applications/agent-office-grid.deskto
   - `tasks.cjs` runs the task queue commands, each in its own process group
   - `network.cjs` TCP/HTTP latency probes
   - `claude-usage.cjs` context fill and daily usage from Claude Code transcripts
+  - `sessions.cjs` live Claude Code sessions, their subagents and touched
+    files, which drive the topology graph
 
 Settings (workspace folders, tasks, probe targets, daily budget) live in
 `~/.config/Agent Office Grid/settings.json`.
@@ -52,5 +54,6 @@ to fish, **claude** sends it to the chat. Dashboard commands start with `:`
 
 Every panel blurs what is behind it (`backdrop-filter`), and any motion on
 screen makes all of those blurs re-render each frame. Idle motion is therefore
-kept rare: the floor steps at 15 fps, the active agent's glow pulses in steps,
-and topology edges only flow while an agent is working.
+kept rare: the floor steps at 15 fps, the selected agent's glow pulses in
+steps, and topology edges only flow while a session or subagent is working
+(activity in the last 30 seconds).
