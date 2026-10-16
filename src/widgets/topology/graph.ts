@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react'
-import type { SessionsSnapshot, SkillInfo } from '../../native/api'
+import type { LiveSession, SessionsSnapshot, SkillInfo } from '../../native/api'
 
 export type TronNodeData =
   | {
@@ -97,12 +97,15 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 // Each session gets a block: files on an arc above, subagents on an arc below.
 // Neighbouring files alternate between two radii (FILE_RADIUS, +FILE_STAGGER)
 // so long names never collide side by side. Blocks stack in one column for up
-// to two sessions (the topology panel is tall), two columns beyond that.
+// to two sessions (the topology panel is tall), two columns beyond that, with
+// the skill grid below everything.
 const FILE_RADIUS = 300
 const FILE_STAGGER = 70
 const SUB_RADIUS = 220
 const BLOCK_W = 900
-const BLOCK_H = 720
+// vertical room a block needs above/below its session node
+const blockTop = (s: LiveSession) => (s.files.length ? FILE_RADIUS + FILE_STAGGER + 50 : 70)
+const blockBottom = (s: LiveSession) => (s.subagents.length ? SUB_RADIUS + 60 : 70)
 
 /** Points spread over an arc; angles in degrees, 0° = right, 90° = down. Odd points sit `stagger` further out. */
 function arc(count: number, from: number, to: number, r: number, stagger = 0) {
@@ -115,15 +118,20 @@ function arc(count: number, from: number, to: number, r: number, stagger = 0) {
 }
 
 /**
- * One block per session (see BLOCK_W/H): touched files on the arc above,
+ * One block per session: touched files on the arc above,
  * subagents on the arc below. Nodes that already exist keep their position, so
  * anything dragged by hand stays put when new activity arrives.
  */
-const SKILL_RING_START = 230
-const SKILL_RING_GAP = 120
-const SKILL_SPACING = 165 // centre-to-centre along a ring; chips are ~140 px wide
+const SKILL_COLS = 5
+const SKILL_COL_W = 165 // chips are at most 150 px wide
+const SKILL_ROW_H = 44
+const SKILL_TOP = 110 // hub to first row
 
-/** Skills on rings around a hub, grouped by source so related ones sit together. */
+/**
+ * Skills in a compact grid below a hub ("cortex"), grouped by source so related
+ * ones sit together; every chip links to the hub, so dragging the hub brings
+ * the whole cluster along.
+ */
 function skillCluster(
   skills: SkillInfo[],
   usage: Map<string, { used: boolean; live: boolean }>,
@@ -141,26 +149,20 @@ function skillCluster(
     data: { kind: 'hub', label: 'skills', role: `${skills.length} loaded` },
   })
   const sorted = [...skills].sort((a, b) => a.source.localeCompare(b.source) || a.short.localeCompare(b.short))
-  let i = 0
-  for (let ring = 0; i < sorted.length; ring++) {
-    const r = SKILL_RING_START + ring * SKILL_RING_GAP
-    const capacity = Math.max(6, Math.floor((2 * Math.PI * r) / SKILL_SPACING))
-    const count = Math.min(capacity, sorted.length - i)
-    for (let j = 0; j < count; j++, i++) {
-      // offset alternate rings by half a step so chips don't line up radially
-      const a = ((j + (ring % 2) * 0.5) / count) * 2 * Math.PI - Math.PI / 2
-      const k = sorted[i]
-      const u = usage.get(k.name)
-      const id = `skill:${k.name}`
-      nodes.push({
-        id,
-        type: 'tron',
-        position: place(id, cx + Math.cos(a) * r, cy + Math.sin(a) * r),
-        data: { kind: 'skill', label: k.short, name: k.name, source: k.source, description: k.description, used: u?.used, live: u?.live },
-      })
-      edges.push(link(HUB_ID, id))
-    }
-  }
+  const cols = Math.min(SKILL_COLS, sorted.length)
+  sorted.forEach((k, i) => {
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    const u = usage.get(k.name)
+    const id = `skill:${k.name}`
+    nodes.push({
+      id,
+      type: 'tron',
+      position: place(id, cx + (col - (cols - 1) / 2) * SKILL_COL_W, cy + SKILL_TOP + row * SKILL_ROW_H),
+      data: { kind: 'skill', label: k.short, name: k.name, source: k.source, description: k.description, used: u?.used, live: u?.live },
+    })
+    edges.push(link(HUB_ID, id))
+  })
   return { nodes, edges }
 }
 
@@ -168,7 +170,7 @@ export const HUB_ID = 'hub:skills'
 
 export function buildSampleGraph() {
   const usage = new Map([['frontend-design:frontend-design', { used: true, live: false }]])
-  const cluster = skillCluster(SAMPLE_SKILLS, usage, 0, 760, (_, x, y) => ({ x, y }))
+  const cluster = skillCluster(SAMPLE_SKILLS, usage, 0, 520, (_, x, y) => ({ x, y }))
   return {
     nodes: [...SAMPLE_NODES, ...cluster.nodes],
     edges: [...SAMPLE_EDGES, ...cluster.edges, link('Claude_Prime', 'skill:frontend-design:frontend-design')],
@@ -180,9 +182,20 @@ export function buildLiveGraph({ sessions, skills }: SessionsSnapshot, keep: Map
   const edges: DataEdgeType[] = []
   const place = (id: string, x: number, y: number) => keep.get(id) ?? { x, y }
   const cols = sessions.length <= 2 ? 1 : 2
+  // rows are as tall as their tallest block, so sessions without subagents
+  // don't reserve empty space below
+  const rowCount = Math.ceil(sessions.length / cols)
+  const rowTop: number[] = []
+  let y = 0
+  for (let r = 0; r < rowCount; r++) {
+    const row = sessions.slice(r * cols, r * cols + cols)
+    const top = Math.max(...row.map(blockTop))
+    rowTop.push(y + top)
+    y += top + Math.max(...row.map(blockBottom))
+  }
   sessions.forEach((s, i) => {
-    const cx = (i % cols) * BLOCK_W
-    const cy = Math.floor(i / cols) * BLOCK_H
+    const cx = (i % cols) * BLOCK_W - ((cols - 1) * BLOCK_W) / 2
+    const cy = rowTop[Math.floor(i / cols)]
     const sid = `session:${s.id}`
     nodes.push({
       id: sid,
@@ -218,18 +231,14 @@ export function buildLiveGraph({ sessions, skills }: SessionsSnapshot, keep: Map
     })
   })
 
-  // skills: one cluster below a single session, or to the right of several,
-  // whichever fits the tall topology panel better
+  // skills: a grid below the sessions (the topology panel is tall)
   const usage = new Map<string, { used: boolean; live: boolean }>()
   for (const s of sessions)
     for (const u of s.skillsUsed) {
       const prev = usage.get(u.name)
       usage.set(u.name, { used: true, live: !!prev?.live || u.live })
     }
-  const rows = Math.ceil(sessions.length / cols)
-  const below = sessions.length <= 1
-  const hub = below ? { x: 0, y: rows * BLOCK_H + 260 } : { x: cols * BLOCK_W + 380, y: ((rows - 1) * BLOCK_H) / 2 }
-  const cluster = skillCluster(skills, usage, hub.x, hub.y, place)
+  const cluster = skillCluster(skills, usage, 0, y + 40, place)
   nodes.push(...cluster.nodes)
   edges.push(...cluster.edges)
   // which session used which skill

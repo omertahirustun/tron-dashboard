@@ -41,7 +41,6 @@ function Graph() {
     edgesRef.current = edges
   }, [nodes, edges])
   const drag = useNeighborDrag(setNodes, nodesRef, edgesRef)
-  const [, setSkillCount] = useState(0)
 
   // desktop: rebuild the graph from live Claude Code sessions
   useEffect(() => {
@@ -55,7 +54,6 @@ function Graph() {
       useOfficeStore.getState().setAgentOptions(
         graph.nodes.filter((n) => n.data.kind === 'agent').map((n) => ({ id: n.id, label: n.data.label })),
       )
-      setSkillCount(snapshot.skills.length)
     }
     void native.getSessions().then(apply)
     return native.onSessions(apply)
