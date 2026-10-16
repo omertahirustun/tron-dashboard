@@ -1,0 +1,333 @@
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
+@import 'react-grid-layout/css/styles.css';
+@import 'react-resizable/css/styles.css';
+@import 'tailwindcss';
+
+/* ── "The Grid" tokens ─────────────────────────────────────────────
+   cyan  = structure, focus, primary actions
+   orange = something is running or needs attention (never decoration) */
+@theme {
+  --color-void: #050505;
+  --color-glass: rgb(6 14 18 / 0.6);
+  --color-cyan: #0de6ff;
+  --color-cyan-soft: rgb(13 230 255 / 0.14);
+  --color-cyan-line: rgb(13 230 255 / 0.26);
+  --color-orange: #ff8c00;
+  --color-orange-soft: rgb(255 140 0 / 0.14);
+  --color-ink: #b8d6dc;
+  --color-dim: #5b7a82;
+  --color-ok: #3dffa8;
+  --color-crit: #ff2e4d;
+
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
+
+  --shadow-glow: 0 0 22px -6px rgb(13 230 255 / 0.45);
+  --shadow-glow-strong: 0 0 34px -4px rgb(13 230 255 / 0.7);
+  --shadow-glow-orange: 0 0 26px -6px rgb(255 140 0 / 0.6);
+  --shadow-glow-crit: 0 0 26px -6px rgb(255 46 77 / 0.7);
+}
+
+:root {
+  color-scheme: dark;
+  --bevel: 14px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(13 230 255 / 0.3);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+/* thin neon scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(13 230 255 / 0.3) transparent;
+}
+
+/* ── Perspective floor ───────────────────────────────────────────── */
+/* Every glass panel blurs what is behind it, so each frame of floor motion
+   re-renders all nine blurs. The floor drifts slowly (~11 px/s), so it steps at
+   15 fps (sub-pixel steps, still smooth) instead of 60: about a quarter of the cost. */
+.grid-floor {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 40% at 50% 34%, rgb(13 230 255 / 0.07), transparent 70%);
+}
+
+.grid-floor-view {
+  position: absolute;
+  inset: 0;
+  perspective: 520px;
+  perspective-origin: 50% 32%;
+  mask-image: linear-gradient(to bottom, transparent 34%, #000 46%, #000 72%, transparent 100%);
+}
+
+.grid-plane {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  top: 34%;
+  height: 160%;
+  transform-origin: top center;
+  background-image:
+    linear-gradient(to right, rgb(13 230 255 / 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(13 230 255 / 0.16) 1px, transparent 1px);
+  background-size: 64px 64px;
+  transform: rotateX(72deg) translateY(-64px);
+  animation: floor-run 6s steps(90) infinite;
+}
+
+@keyframes floor-run {
+  to {
+    transform: rotateX(72deg) translateY(0);
+  }
+}
+
+/* horizon line */
+.grid-floor::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 34%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgb(13 230 255 / 0.5), transparent);
+  box-shadow: 0 0 18px 2px rgb(13 230 255 / 0.25);
+}
+
+/* Breathing glow: a pre-drawn shadow layer whose opacity pulses. Idle breathing
+   is stepped (~4 updates/s) because each frame of motion re-renders the glass
+   blur of every panel; the busy pulse is smooth since it only runs while replying. */
+.glow-layer {
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.35;
+  box-shadow:
+    0 0 26px 2px rgb(13 230 255 / 0.75),
+    inset 0 0 18px -4px rgb(13 230 255 / 0.6);
+  animation: breathe 2.2s steps(8, jump-none) infinite alternate;
+}
+
+.glow-layer[data-tone='busy'] {
+  box-shadow:
+    0 0 28px 3px rgb(255 140 0 / 0.8),
+    inset 0 0 18px -4px rgb(255 140 0 / 0.6);
+  animation: breathe 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes breathe {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Widget frame ────────────────────────────────────────────────── */
+.widget {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(160deg, rgb(10 24 30 / 0.72), rgb(4 9 12 / 0.62));
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--color-cyan-line);
+  border-radius: 3px;
+  box-shadow:
+    var(--shadow-glow),
+    inset 0 1px 0 rgb(13 230 255 / 0.12);
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
+}
+
+/* Angular top-left / bottom-right corners where the browser supports it */
+@supports (corner-shape: bevel) {
+  .widget {
+    border-radius: var(--bevel) 3px var(--bevel) 3px;
+    corner-shape: bevel round bevel round;
+  }
+}
+
+.widget:hover,
+.widget:focus-within {
+  border-color: rgb(13 230 255 / 0.45);
+}
+
+.widget[data-tone='alert'] {
+  border-color: rgb(255 46 77 / 0.55);
+  box-shadow: var(--shadow-glow-crit);
+}
+
+.react-grid-item.react-draggable-dragging .widget,
+.react-grid-item.resizing .widget {
+  border-color: var(--color-cyan);
+  box-shadow: var(--shadow-glow-strong);
+}
+
+.widget-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.react-draggable-dragging .widget-handle {
+  cursor: grabbing;
+}
+
+.layout-locked .widget-handle {
+  cursor: default;
+}
+
+/* ── react-grid-layout overrides ─────────────────────────────────── */
+.react-grid-item.react-grid-placeholder {
+  background: rgb(13 230 255 / 0.08);
+  border: 1px dashed var(--color-cyan);
+  border-radius: 3px;
+  opacity: 1;
+}
+
+.react-grid-item > .react-resizable-handle {
+  z-index: 5;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-color: var(--color-cyan) !important;
+  opacity: 0.45;
+}
+
+.react-grid-item > .react-resizable-handle:hover::after {
+  opacity: 1;
+}
+
+.layout-locked .react-resizable-handle {
+  display: none;
+}
+
+/* ── Segmented meter ─────────────────────────────────────────────── */
+.meter {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  height: 10px;
+}
+
+.meter > span {
+  background: rgb(13 230 255 / 0.08);
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.meter > span[data-on='true'] {
+  background: var(--color-cyan);
+  box-shadow: 0 0 6px rgb(13 230 255 / 0.7);
+}
+
+.meter[data-level='heavy'] > span[data-on='true'] {
+  background: var(--color-orange);
+  box-shadow: 0 0 6px rgb(255 140 0 / 0.7);
+}
+
+.meter[data-level='critical'] > span[data-on='true'] {
+  background: var(--color-crit);
+  box-shadow: 0 0 8px rgb(255 46 77 / 0.8);
+}
+
+/* blinking block caret */
+.caret {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  background: var(--color-cyan);
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Topology (React Flow) ───────────────────────────────────────── */
+.tron-flow {
+  --xy-background-color: transparent;
+  --xy-node-boxshadow-selected: none;
+  --xy-selection-background-color: rgb(13 230 255 / 0.08);
+  --xy-selection-border: 1px dashed var(--color-cyan);
+  font-family: var(--font-mono);
+}
+
+.tron-flow .react-flow__node {
+  font-family: var(--font-mono);
+}
+
+.tron-flow .react-flow__attribution {
+  background: transparent;
+  font-size: 9px;
+  opacity: 0.35;
+}
+
+.tron-flow .react-flow__attribution a {
+  color: var(--color-dim);
+}
+
+.tron-node-agent {
+  border-radius: 2px;
+}
+
+@supports (corner-shape: bevel) {
+  .tron-node-agent {
+    border-radius: 10px 2px 10px 2px;
+    corner-shape: bevel round bevel round;
+  }
+}
+
+.edge-flow {
+  animation: edge-flow 1.4s linear infinite;
+}
+
+.edge-flow-fast {
+  animation-duration: 0.45s;
+}
+
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-plane,
+  .glow-layer,
+  .edge-flow,
+  .caret {
+    animation: none;
+  }
+}
