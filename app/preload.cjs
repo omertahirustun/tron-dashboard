@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('api', {
   getPlaylists: () => ipcRenderer.invoke('music:playlists'),
   playPlaylist: (id) => ipcRenderer.invoke('music:play-playlist', id),
   onMusicState: (cb) => listen('music:state', cb),
+  onMusicSpectrum: (cb) => listen('music:spectrum', cb),
 
   // network / DB latency
   getNetworkStatus: () => ipcRenderer.invoke('network:latest'),

@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
 import { Bell, BellOff, Lock, RotateCcw, SquareTerminal, Unlock } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import GridLayout, { type Layout } from 'react-grid-layout'
+import { IdentityDisc, LightCycles } from '../components/TronChrome'
 import { TronButton } from '../components/TronButton'
 import { chime } from '../lib/chime'
 import { sfx } from '../lib/sfx'
@@ -80,7 +81,7 @@ function Clock() {
     const id = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
-  return <time className="tabular-nums text-ink">{now.toLocaleTimeString('en-GB', { hour12: false })}</time>
+  return <time className="app-clock tabular-nums">{now.toLocaleTimeString('en-GB', { hour12: false })}</time>
 }
 
 /** Mute / unmute the permission and finished-turn chimes; unmuting plays a sample. */
@@ -141,9 +142,11 @@ export function Dashboard() {
         </div>
       </div>
       <div className={`relative z-10 flex flex-col ${fit ? 'h-screen overflow-hidden' : 'min-h-screen'} ${locked ? 'layout-locked' : ''}`}>
-        <header className="flex h-11 items-center gap-3 border-b border-cyan-line/60 bg-void/70 px-4 backdrop-blur-md">
-          <span className="size-2 rotate-45 bg-cyan shadow-[0_0_10px_var(--color-cyan)]" aria-hidden />
-          <h1 className="whitespace-nowrap text-[13px] font-bold tracking-wide text-white">agent office</h1>
+        <header className="app-header relative flex h-12 items-center gap-3 border-b border-cyan-line/60 bg-void/70 px-4 backdrop-blur-md">
+          <IdentityDisc />
+          <h1 lang="en" className="app-wordmark">
+            Tron<span className="text-cyan">//</span>Dashboard
+          </h1>
           <span className="hidden text-[11px] text-dim sm:inline">
             {locked ? 'layout locked' : 'drag a panel by its header, resize from the corner'}
           </span>
@@ -173,6 +176,7 @@ export function Dashboard() {
             <Clock />
           </div>
         </header>
+        <LightCycles />
 
         <main ref={containerRef} className={`min-h-0 flex-1 ${fit ? 'overflow-hidden' : ''}`}>
           {width > 0 && height > 0 && (
@@ -212,6 +216,7 @@ export function Dashboard() {
                     {/* staggered boot-up: each panel fades in and rises slightly */}
                     <motion.div
                       className="h-full"
+                      style={{ '--boot-delay': `${0.35 + i * 0.07}s` } as CSSProperties}
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.08 + i * 0.07, duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}

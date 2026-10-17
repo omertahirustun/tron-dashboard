@@ -1,4 +1,4 @@
-// Agent Office Grid desktop app: opens the built dashboard (dist/) in its own window.
+// Tron Dashboard desktop app: opens the built dashboard (dist/) in its own window.
 // `--dev` loads the Vite dev server instead, for hot reload while editing.
 
 // Render on the RTX card: PRIME offload + XWayland (the Wayland EGL path falls back to Intel).
@@ -91,7 +91,7 @@ function openTerminalWindow() {
     height: 800,
     minWidth: 480,
     minHeight: 320,
-    title: 'Terminals · Agent Office Grid',
+    title: 'Terminals · Tron Dashboard',
     icon: path.join(__dirname, 'icon.png'),
     backgroundColor: '#050505',
     autoHideMenuBar: true,
@@ -249,7 +249,7 @@ app.whenReady().then(() => {
     height: 1000,
     minWidth: 900,
     minHeight: 600,
-    title: 'Agent Office Grid',
+    title: 'Tron Dashboard',
     icon: path.join(__dirname, 'icon.png'),
     backgroundColor: '#050505',
     autoHideMenuBar: true,

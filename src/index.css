@@ -1,6 +1,8 @@
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 @import '@fontsource/jetbrains-mono/700.css';
+@import '@fontsource/orbitron/600.css';
+@import '@fontsource/orbitron/800.css';
 @import 'react-grid-layout/css/styles.css';
 @import 'react-resizable/css/styles.css';
 @import 'tailwindcss';
@@ -22,6 +24,7 @@
   --color-crit: #ff2e4d;
 
   --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
+  --font-display: 'Orbitron', var(--font-mono);
 
   --shadow-glow: 0 0 22px -6px rgb(13 230 255 / 0.45);
   --shadow-glow-strong: 0 0 34px -4px rgb(13 230 255 / 0.7);
@@ -94,12 +97,19 @@ body {
   top: 34%;
   height: 160%;
   transform-origin: top center;
+  /* fine grid, plus a brighter "major" line every fourth cell */
   background-image:
-    linear-gradient(to right, rgb(13 230 255 / 0.16) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(13 230 255 / 0.16) 1px, transparent 1px);
-  background-size: 64px 64px;
-  transform: rotateX(72deg) translateY(-64px);
-  animation: floor-run 6s steps(90) infinite;
+    linear-gradient(to right, rgb(13 230 255 / 0.34) 2px, transparent 2px),
+    linear-gradient(to bottom, rgb(13 230 255 / 0.34) 2px, transparent 2px),
+    linear-gradient(to right, rgb(13 230 255 / 0.13) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(13 230 255 / 0.13) 1px, transparent 1px);
+  background-size:
+    256px 256px,
+    256px 256px,
+    64px 64px,
+    64px 64px;
+  transform: rotateX(72deg) translateY(-256px);
+  animation: floor-run 24s steps(360) infinite;
 }
 
 @keyframes floor-run {
@@ -116,8 +126,30 @@ body {
   right: 0;
   top: 34%;
   height: 1px;
-  background: linear-gradient(to right, transparent, rgb(13 230 255 / 0.5), transparent);
-  box-shadow: 0 0 18px 2px rgb(13 230 255 / 0.25);
+  background: linear-gradient(to right, transparent, rgb(13 230 255 / 0.5) 20%, #dffcff 50%, rgb(13 230 255 / 0.5) 80%, transparent);
+  box-shadow:
+    0 0 18px 2px rgb(13 230 255 / 0.3),
+    0 0 80px 10px rgb(13 230 255 / 0.12);
+}
+
+/* city glow above the horizon and a dark vignette at the screen edges (static) */
+.grid-floor::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 45% 9% at 50% 34%, rgb(13 230 255 / 0.16), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.75) 100%);
+}
+
+/* faint CRT scanlines over everything; static, so it costs nothing per frame */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgb(0 0 0 / 0.16) 2px 3px);
 }
 
 /* Breathing glow: a pre-drawn shadow layer whose opacity pulses. Idle breathing
@@ -179,6 +211,169 @@ body {
 .widget:hover,
 .widget:focus-within {
   border-color: rgb(13 230 255 / 0.45);
+}
+
+/* light catching the top edge of the glass */
+.widget::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(223 252 255 / 0.7), transparent);
+}
+
+.hud-corner {
+  position: absolute;
+  z-index: 4;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  border-color: var(--color-cyan);
+  filter: drop-shadow(0 0 3px rgb(13 230 255 / 0.9));
+  opacity: 0.85;
+}
+.hud-corner[data-at='tr'] {
+  top: 3px;
+  right: 3px;
+  border-top: 2px solid;
+  border-right: 2px solid;
+}
+.hud-corner[data-at='bl'] {
+  bottom: 3px;
+  left: 3px;
+  border-bottom: 2px solid;
+  border-left: 2px solid;
+}
+.widget[data-tone='alert'] .hud-corner {
+  border-color: var(--color-crit);
+}
+
+.widget-title {
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #dffcff;
+  text-shadow: 0 0 8px rgb(13 230 255 / 0.7);
+}
+
+/* header underline: bright in the middle, powers on once when the panel boots */
+.widget-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgb(13 230 255 / 0.15), rgb(13 230 255 / 0.75) 30%, rgb(13 230 255 / 0.75) 70%, rgb(13 230 255 / 0.15));
+  box-shadow: 0 0 8px rgb(13 230 255 / 0.5);
+  transform-origin: left;
+  animation: power-on 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) var(--boot-delay, 0s) both;
+}
+.widget[data-tone='alert'] .widget-rule {
+  background: linear-gradient(90deg, transparent, var(--color-crit), transparent);
+}
+
+@keyframes power-on {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+    filter: brightness(2.5);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ── App header ──────────────────────────────────────────────────── */
+.app-wordmark {
+  margin: 0;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #f2feff;
+  text-shadow:
+    0 0 6px rgb(13 230 255 / 0.9),
+    0 0 18px rgb(13 230 255 / 0.5);
+}
+
+.app-clock {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-cyan);
+  text-shadow: 0 0 8px rgb(13 230 255 / 0.7);
+}
+
+.identity-disc {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px rgb(13 230 255 / 0.9));
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.app-header:hover .identity-disc {
+  transform: rotate(360deg);
+}
+
+/* header's bottom edge, the track the light cycles ride on. A fixed sibling of the
+   header, not its child: anything moving inside a backdrop-filter element re-blurs it. */
+.light-cycles {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: 47px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* bright head on the right, fading light trail behind it; idle most of the cycle */
+.light-cycle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 220px;
+  height: 2px;
+  will-change: transform;
+  background: linear-gradient(90deg, transparent, rgb(13 230 255 / 0.6) 70%, #fff);
+  box-shadow: 0 0 10px 1px rgb(13 230 255 / 0.8);
+  transform: translateX(-240px);
+  animation: cycle-run 2.6s cubic-bezier(0.45, 0, 0.3, 1) forwards;
+}
+
+.light-cycle[data-tone='busy'] {
+  background: linear-gradient(270deg, transparent, rgb(255 140 0 / 0.6) 70%, #fff3e0);
+  box-shadow: 0 0 10px 1px rgb(255 140 0 / 0.85);
+  transform: translateX(100vw);
+  animation: cycle-run-back 1.9s cubic-bezier(0.45, 0, 0.3, 1) forwards;
+}
+
+@keyframes cycle-run {
+  from {
+    transform: translateX(-240px);
+  }
+  to {
+    transform: translateX(100vw);
+  }
+}
+
+@keyframes cycle-run-back {
+  from {
+    transform: translateX(100vw);
+  }
+  to {
+    transform: translateX(-240px);
+  }
 }
 
 .widget[data-tone='alert'] {
@@ -504,11 +699,15 @@ body.console-gesture .xterm {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .light-cycles {
+    display: none;
+  }
   .agent-pulse,
   .grid-plane,
   .glow-layer,
   .edge-flow,
-  .caret {
+  .caret,
+  .widget-rule {
     animation: none;
   }
 }

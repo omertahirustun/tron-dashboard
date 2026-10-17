@@ -44,10 +44,68 @@ const READ_PLAYLISTS = `(() => {
   return { signedIn: !document.querySelector('ytmusic-guide-signin-promo-renderer, a[href*="ServiceLogin"]'), items: out }
 })()`
 const POLL_MS = 1000
+const SPECTRUM_MS = 33
+const BANDS = 48
+
+// The <video> that is actually playing. YouTube Music can keep a second element
+// to preload the next track, so the first one in the page may be the old song.
+const ACTIVE_VIDEO = `(() => {
+  const all = [...document.querySelectorAll('video')]
+  return all.find((v) => !v.paused && !v.ended && v.readyState > 2) || document.querySelector('#movie_player video') || all[0] || null
+})()`
+
+// Runs inside music.youtube.com: routes every <video> through one Web Audio analyser
+// (each element once; YouTube feeds them through MediaSource from its own origin,
+// so the data isn't tainted) and returns BANDS log-spaced levels 0..255. Playback
+// keeps going through the graph, so it is built once and only ever added to.
+const READ_SPECTRUM = `(() => {
+  const video = ${ACTIVE_VIDEO}
+  if (!video) return null
+  let tap = window.__aodTap
+  try {
+    if (!tap) {
+      const ctx = new AudioContext()
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
+      analyser.smoothingTimeConstant = 0.72
+      analyser.connect(ctx.destination)
+      tap = window.__aodTap = { ctx, analyser, tapped: new WeakSet(), bins: new Uint8Array(analyser.frequencyBinCount) }
+    }
+    for (const v of document.querySelectorAll('video')) {
+      if (tap.tapped.has(v)) continue
+      tap.ctx.createMediaElementSource(v).connect(tap.analyser)
+      tap.tapped.add(v)
+    }
+  } catch (e) {
+    return null
+  }
+  if (tap.ctx.state !== 'running') void tap.ctx.resume()
+  tap.analyser.getByteFrequencyData(tap.bins)
+  const n = tap.bins.length, out = new Array(${BANDS})
+  // 40 Hz .. 16 kHz, log spaced; every band at least one bin of its own
+  if (!tap.edges) {
+    const hz = tap.ctx.sampleRate / 2 / n
+    tap.edges = [Math.max(1, Math.floor(40 / hz))]
+    for (let b = 1; b <= ${BANDS}; b++) tap.edges[b] = Math.min(n, Math.max(tap.edges[b - 1] + 1, Math.floor(40 * Math.pow(400, b / ${BANDS}) / hz)))
+  }
+  // the analyser hears the element after its volume; undo that (bins are dB, -100..-30
+  // over 0..255) so the lights don't fade when the music is turned down
+  const comp = video.volume > 0.01 ? (-20 * Math.log10(video.volume) / 70) * 255 : 0
+  for (let b = 0; b < ${BANDS}; b++) {
+    let m = 0
+    for (let i = tap.edges[b]; i < tap.edges[b + 1]; i++) if (tap.bins[i] > m) m = tap.bins[i]
+    out[b] = m ? Math.min(255, Math.round(m + comp)) : 0
+  }
+  return out
+})()`
 
 // Runs inside music.youtube.com. Reads the player bar and media session.
 const READ_STATE = `(() => {
-  const video = document.querySelector('video')
+  const video = ${ACTIVE_VIDEO}
+  // the player's own clock is per track (the element's can run on across tracks)
+  const player = document.querySelector('#movie_player')
+  const pt = player && player.getCurrentTime ? Number(player.getCurrentTime()) : NaN
+  const pd = player && player.getDuration ? Number(player.getDuration()) : NaN
   const meta = navigator.mediaSession && navigator.mediaSession.metadata
   const bar = document.querySelector('ytmusic-player-bar')
   const title = (meta && meta.title) || bar?.querySelector('.title')?.textContent?.trim() || ''
@@ -60,8 +118,8 @@ const READ_STATE = `(() => {
     album: (meta && meta.album) || '',
     art,
     playing: !!video && !video.paused && !video.ended && video.readyState > 2,
-    current: video ? video.currentTime : 0,
-    duration: video && isFinite(video.duration) ? video.duration : 0,
+    current: isFinite(pt) ? pt : video ? video.currentTime : 0,
+    duration: isFinite(pd) && pd > 0 ? pd : video && isFinite(video.duration) ? video.duration : 0,
     volume: video ? Math.round(video.volume * 100) : 100,
     // YouTube plays ads without Premium; the widget says so instead of showing the ad as a track
     ad: !!document.querySelector('#movie_player.ad-showing'),
@@ -87,6 +145,8 @@ function createMusic(send, { icon }) {
   let timer = null
   let last = null
   let quitting = false
+  let spectrumTimer = null
+  let reading = false
 
   function ensureWindow() {
     if (win && !win.isDestroyed()) return win
@@ -95,7 +155,7 @@ function createMusic(send, { icon }) {
       width: 1100,
       height: 760,
       show: false,
-      title: 'YouTube Music · Agent Office Grid',
+      title: 'YouTube Music · Tron Dashboard',
       icon,
       backgroundColor: '#030303',
       autoHideMenuBar: true,
@@ -149,9 +209,24 @@ function createMusic(send, { icon }) {
     }
   }
 
+  /** ~30 Hz levels for the widget's visualizer, only while something plays. */
+  async function readSpectrum() {
+    if (reading || !last?.playing || last.ad || !win || win.isDestroyed() || win.webContents.isLoading()) return
+    reading = true
+    try {
+      const bands = await win.webContents.executeJavaScript(READ_SPECTRUM, true)
+      if (bands) send('music:spectrum', bands)
+    } catch {
+      /* page navigating */
+    } finally {
+      reading = false
+    }
+  }
+
   function startPolling() {
     if (timer) return
     timer = setInterval(poll, POLL_MS)
+    spectrumTimer = setInterval(readSpectrum, SPECTRUM_MS)
   }
 
   /** Retry until the results page has a play button (it renders after load). */
@@ -188,9 +263,15 @@ function createMusic(send, { icon }) {
     next: () => run(click('ytmusic-player-bar .next-button')),
     previous: () => run(click('ytmusic-player-bar .previous-button')),
     seek: (fraction) =>
-      run(`(() => { const v = document.querySelector('video'); if (v && isFinite(v.duration)) v.currentTime = v.duration * ${Math.max(0, Math.min(1, Number(fraction) || 0))} })()`),
+      run(`(() => {
+        const f = ${Math.max(0, Math.min(1, Number(fraction) || 0))}
+        const p = document.querySelector('#movie_player')
+        if (p && p.seekTo && p.getDuration && p.getDuration() > 0) return p.seekTo(p.getDuration() * f, true)
+        const v = ${ACTIVE_VIDEO}
+        if (v && isFinite(v.duration)) v.currentTime = v.duration * f
+      })()`),
     volume: (pct) =>
-      run(`(() => { const p = document.querySelector('#movie_player'); const n = ${Math.max(0, Math.min(100, Math.round(Number(pct) || 0)))}; if (p && p.setVolume) p.setVolume(n); const v = document.querySelector('video'); if (v) v.volume = n / 100 })()`),
+      run(`(() => { const p = document.querySelector('#movie_player'); const n = ${Math.max(0, Math.min(100, Math.round(Number(pct) || 0)))}; if (p && p.setVolume) p.setVolume(n); for (const v of document.querySelectorAll('video')) v.volume = n / 100 })()`),
     async search(query) {
       const q = String(query).trim()
       if (!q) return false
@@ -233,7 +314,8 @@ function createMusic(send, { icon }) {
     stop() {
       quitting = true
       clearInterval(timer)
-      timer = null
+      clearInterval(spectrumTimer)
+      timer = spectrumTimer = null
       if (win && !win.isDestroyed()) win.destroy()
     },
   }

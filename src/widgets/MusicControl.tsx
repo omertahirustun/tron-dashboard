@@ -1,4 +1,3 @@
-import { motion, useReducedMotion } from 'framer-motion'
 import { AppWindow, ListMusic, Music2, RefreshCw, Pause, Play, Search, SkipBack, SkipForward, Volume2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { TronButton } from '../components/TronButton'
@@ -6,60 +5,9 @@ import { Widget } from '../components/Widget'
 import { sfx } from '../lib/sfx'
 import { native, type MusicPlaylist, type MusicState } from '../native/api'
 import { useOfficeStore } from '../store/useOfficeStore'
-
-const BARS = 28
+import { NeonRing } from './music/NeonRing'
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-
-function Disc({ playing }: { playing: boolean }) {
-  const reduce = useReducedMotion()
-  return (
-    <motion.div
-      className="relative size-14 shrink-0 rounded-full border border-cyan/50"
-      style={{
-        background:
-          'repeating-radial-gradient(circle, #071216 0 2px, #0b1c22 2px 4px), radial-gradient(circle, #0b1c22, #04090c)',
-      }}
-      animate={reduce ? undefined : { rotate: playing ? 360 : 0 }}
-      transition={playing ? { duration: 4, repeat: Infinity, ease: 'linear' } : { duration: 0.6 }}
-      aria-hidden
-    >
-      {/* breathing glow while playing (CSS opacity pulse, see .glow-layer) */}
-      {playing && <span className="glow-layer" style={{ animationDuration: '1.6s' }} />}
-      {/* label + light streak so the rotation is visible */}
-      <span className="absolute inset-[30%] rounded-full bg-[#071216] ring-1 ring-cyan/60" />
-      <span className="absolute inset-[44%] rounded-full bg-orange shadow-[0_0_8px_var(--color-orange)]" />
-      <span className="absolute top-1 left-1/2 h-3 w-px -translate-x-1/2 bg-cyan/70" />
-    </motion.div>
-  )
-}
-
-function Visualizer({ playing }: { playing: boolean }) {
-  const reduce = useReducedMotion()
-  // random but stable per-bar rhythm
-  const [profile] = useState(() =>
-    Array.from({ length: BARS }, (_, i) => ({
-      peak: 0.35 + Math.random() * 0.65 * (1 - Math.abs(i - BARS / 2) / BARS),
-      dur: 0.35 + Math.random() * 0.5,
-    })),
-  )
-  return (
-    <div className="flex h-6 items-end gap-[2px]" aria-hidden>
-      {profile.map((p, i) => (
-        <motion.span
-          key={i}
-          className="flex-1 origin-bottom bg-cyan"
-          style={{ height: '100%', boxShadow: '0 0 6px rgb(13 230 255 / 0.6)' }}
-          initial={{ scaleY: 0.08 }}
-          animate={
-            playing && !reduce ? { scaleY: [0.1, p.peak, 0.2, p.peak * 0.7, 0.1] } : { scaleY: 0.08 }
-          }
-          transition={playing && !reduce ? { duration: p.dur * 2, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.3 }}
-        />
-      ))}
-    </div>
-  )
-}
 
 const SAMPLE: MusicState = {
   ready: true, title: 'Derezzed', artist: 'Daft Punk', album: 'TRON: Legacy', art: '', playing: false,
@@ -135,6 +83,37 @@ export function MusicControl() {
     const r = e.currentTarget.getBoundingClientRect()
     call(() => native?.musicSeek((e.clientX - r.left) / r.width), 'music.seek')
   }
+
+  const controls = (
+    <div className="flex items-center gap-2">
+      <TronButton sfxSource="music.prev" onClick={() => call(() => native?.musicPrevious(), 'music.prev')} aria-label="Previous track" disabled={!native}>
+        <SkipBack size={14} />
+      </TronButton>
+      <TronButton sfxSource="music.play" variant="solid" onClick={() => call(() => native?.musicToggle(), 'music.play')} aria-label={playing ? 'Pause' : 'Play'} className="px-3" disabled={!native}>
+        {playing ? <Pause size={14} /> : <Play size={14} />}
+      </TronButton>
+      <TronButton sfxSource="music.next" onClick={() => call(() => native?.musicNext(), 'music.next')} aria-label="Next track" disabled={!native}>
+        <SkipForward size={14} />
+      </TronButton>
+      <label className="no-drag ml-1 flex items-center gap-1 text-dim" title="Volume">
+        <Volume2 size={12} aria-hidden />
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={state?.volume ?? 100}
+          disabled={!native}
+          onChange={(e) => {
+            const v = Number(e.target.value)
+            setState((s) => (s ? { ...s, volume: v } : s))
+            void native?.musicVolume(v)
+          }}
+          aria-label="Volume"
+          className="h-1 w-16 accent-[var(--color-cyan)]"
+        />
+      </label>
+    </div>
+  )
 
   return (
     <Widget
@@ -217,58 +196,31 @@ export function MusicControl() {
             )}
           </div>
         ) : (
-        <>
-        <div className="flex min-h-0 items-center gap-3">
-          {state?.art && !state.ad ? (
-            <img src={state.art} alt="" className="size-14 shrink-0 border border-cyan/40 object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <Disc playing={playing} />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-bold text-white">{state?.ad ? 'Advertisement' : state?.title || 'Nothing playing'}</p>
-            <p className="truncate text-[11px] text-dim">
-              {state?.ad ? 'your track starts after it' : state?.title ? state.artist : note || 'search above, or press play for a quick pick'}
-            </p>
-            <div className="no-drag mt-1.5 h-[3px] cursor-pointer bg-cyan/10" onClick={seek} role="slider" aria-label="Seek" aria-valuemin={0} aria-valuemax={Math.round(state?.duration ?? 0)} aria-valuenow={Math.round(state?.current ?? 0)}>
-              <div className="h-full bg-cyan shadow-[0_0_6px_var(--color-cyan)]" style={{ width: `${state?.duration ? (state.current / state.duration) * 100 : 0}%` }} />
+        <div className="flex min-h-0 flex-1 items-center gap-3">
+          <div className="aspect-square h-full max-w-[55%] shrink-0">
+            <NeonRing playing={playing && !state?.ad} art={state?.ad ? '' : state?.art ?? ''} title={state?.ad ? '' : state?.title ?? ''} />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-bold text-white [text-shadow:0_0_10px_rgb(13_230_255/0.45)]">{state?.ad ? 'Advertisement' : state?.title || 'Nothing playing'}</p>
+              <p className="truncate text-[11px] text-dim">
+                {state?.ad ? 'your track starts after it' : state?.title ? state.artist : note || 'search above, or press play for a quick pick'}
+              </p>
             </div>
-            <div className="mt-0.5 flex justify-between text-[10px] tabular-nums text-dim">
-              <span>{fmt(state?.current ?? 0)}</span>
-              <span>{fmt(state?.duration ?? 0)}</span>
+            <div>
+              <div className="no-drag h-[3px] cursor-pointer bg-cyan/10" onClick={seek} role="slider" aria-label="Seek" aria-valuemin={0} aria-valuemax={Math.round(state?.duration ?? 0)} aria-valuenow={Math.round(state?.current ?? 0)}>
+                <div className="h-full bg-cyan shadow-[0_0_6px_var(--color-cyan)]" style={{ width: `${state?.duration ? (state.current / state.duration) * 100 : 0}%` }} />
+              </div>
+              <div className="mt-0.5 flex justify-between text-[10px] tabular-nums text-dim">
+                <span>{fmt(state?.current ?? 0)}</span>
+                <span>{fmt(state?.duration ?? 0)}</span>
+              </div>
             </div>
+            {controls}
           </div>
         </div>
-        <Visualizer playing={playing} />
-        </>
         )}
-        <div className="mt-auto flex items-center justify-center gap-2">
-          <TronButton sfxSource="music.prev" onClick={() => call(() => native?.musicPrevious(), 'music.prev')} aria-label="Previous track" disabled={!native}>
-            <SkipBack size={14} />
-          </TronButton>
-          <TronButton sfxSource="music.play" variant="solid" onClick={() => call(() => native?.musicToggle(), 'music.play')} aria-label={playing ? 'Pause' : 'Play'} className="px-3" disabled={!native}>
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </TronButton>
-          <TronButton sfxSource="music.next" onClick={() => call(() => native?.musicNext(), 'music.next')} aria-label="Next track" disabled={!native}>
-            <SkipForward size={14} />
-          </TronButton>
-          <label className="no-drag ml-1 flex items-center gap-1 text-dim" title="Volume">
-            <Volume2 size={12} aria-hidden />
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={state?.volume ?? 100}
-              disabled={!native}
-              onChange={(e) => {
-                const v = Number(e.target.value)
-                setState((s) => (s ? { ...s, volume: v } : s))
-                void native?.musicVolume(v)
-              }}
-              aria-label="Volume"
-              className="h-1 w-16 accent-[var(--color-cyan)]"
-            />
-          </label>
-        </div>
+        {showLists && <div className="mt-auto">{controls}</div>}
       </div>
     </Widget>
   )

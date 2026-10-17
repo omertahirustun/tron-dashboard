@@ -271,6 +271,8 @@ export interface NativeApi {
   /** play a playlist from the start ("LM" = liked music) */
   playPlaylist(id: string): Promise<boolean>
   onMusicState(cb: (state: MusicState) => void): Unsubscribe
+  /** ~30 Hz log-spaced band levels (0..255, low → high) while a track plays */
+  onMusicSpectrum(cb: (bands: number[]) => void): Unsubscribe
 
   getNetworkStatus(): Promise<ProbeResult[]>
   refreshNetwork(): Promise<void>
