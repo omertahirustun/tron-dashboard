@@ -4,7 +4,7 @@
 
 Usage: pty_bridge.py COLS ROWS COMMAND [ARGS...]
   stdin  -> written to the terminal, terminal output -> stdout
-  fd 3   -> resize messages: "COLS ROWS\\n"
+  fd 3   -> resize messages: "COLS ROWS [XPIXELS YPIXELS]\\n"
 """
 import fcntl, os, pty, select, signal, struct, sys, termios
 
@@ -12,8 +12,8 @@ cols, rows = int(sys.argv[1]), int(sys.argv[2])
 cmd = sys.argv[3:]
 
 
-def set_size(fd, c, r):
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', r, c, 0, 0))
+def set_size(fd, c, r, xp=0, yp=0):
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', r, c, xp, yp))
 
 
 pid, fd = pty.fork()
@@ -56,8 +56,9 @@ try:
                 while b'\n' in ctl_buf:
                     line, ctl_buf = ctl_buf.split(b'\n', 1)
                     try:
-                        c, r = (int(x) for x in line.split())
-                        set_size(fd, max(2, min(c, 500)), max(2, min(r, 200)))
+                        c, r, *px = (int(x) for x in line.split())
+                        xp, yp = (px + [0, 0])[:2]
+                        set_size(fd, max(2, min(c, 500)), max(2, min(r, 200)), max(0, min(xp, 30000)), max(0, min(yp, 30000)))
                     except Exception:
                         pass
 except KeyboardInterrupt:

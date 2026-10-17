@@ -1,4 +1,5 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { ImageAddon } from '@xterm/addon-image'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useEffect, useRef } from 'react'
@@ -45,10 +46,10 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
   const host = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   // latest callbacks without re-creating the terminal
-  const cb = useRef({ isWindowKey, onFocus })
+  const cb = useRef({ isWindowKey, onFocus, focused })
   useEffect(() => {
-    cb.current = { isWindowKey, onFocus }
-  }, [isWindowKey, onFocus])
+    cb.current = { isWindowKey, onFocus, focused }
+  }, [isWindowKey, onFocus, focused])
 
   useEffect(() => {
     const el = host.current
@@ -56,35 +57,70 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
     const api = native
     let disposed = false
     let exited = false
+    let replaying = false
     const cleanups: Array<() => void> = []
 
+    // looks like the user's own terminal (foot): JetBrains Mono Nerd Font for the
+    // prompt/eza/fastfetch icons, a thin beam cursor, bold not brightened. Colours
+    // stay the Grid's (see the OSC filter below)
     const term = new Terminal({
-      fontFamily: "'JetBrains Mono', monospace",
+      fontFamily: "'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace",
       fontSize: termFont.get(),
-      lineHeight: 1.15,
+      lineHeight: 1,
       theme: THEME,
       allowTransparency: true,
       cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 5000,
+      cursorStyle: 'bar',
+      cursorWidth: 2,
+      drawBoldTextInBrightColors: false,
+      scrollback: 10000,
+      // programs that size images (fastfetch's logo) ask for pixel sizes
+      windowOptions: { getWinSizePixels: true, getCellSizePixels: true, getWinSizeChars: true },
     })
     termRef.current = term
+    // The user's config.fish re-colours the terminal (caelestia's OSC sequences).
+    // Keep the Grid's background, text, cursor and 16 ANSI colours (the background
+    // stays see-through), but let the extended colours 16+ through: fastfetch's
+    // icons use those, so it looks as in the user's own terminal.
+    for (const osc of [10, 11, 12, 17, 19, 104, 110, 111, 112]) term.parser.registerOscHandler(osc, () => true)
+    term.parser.registerOscHandler(4, (data) => {
+      const indexes = data.split(';').filter((_, i) => i % 2 === 0)
+      return indexes.every((n) => Number(n) < 16) // true = swallowed, false = xterm applies it
+    })
     const fit = new FitAddon()
     term.loadAddon(fit)
     // zoom keys and the window's own keys never reach the shell
     term.attachCustomKeyEventHandler((e) => !handleZoomKey(e) && !cb.current.isWindowKey(e))
 
+    // pixel size of the character grid, for the PTY's TIOCGWINSZ (image tools need it)
+    const pixels = (): [number, number] => {
+      const screen = el.querySelector<HTMLElement>('.xterm-screen')
+      return [screen?.clientWidth ?? 0, screen?.clientHeight ?? 0]
+    }
+    const resize = () => api.resizeShell(id, term.cols, term.rows, ...pixels())
+
     const start = async () => {
-      const { backlog } = await api.startShell(id, term.cols, term.rows)
+      const { backlog } = await api.startShell(id, term.cols, term.rows, ...pixels())
       if (disposed) return
-      if (backlog) term.write(backlog)
+      if (!backlog) return
+      // the backlog holds old terminal queries (cursor position, pixel size…);
+      // xterm answers them while replaying, and those answers must not reach the
+      // shell as typed input
+      replaying = true
+      term.write(backlog, () => {
+        replaying = false
+      })
     }
 
     // fonts must be ready before xterm measures its character cell
     void document.fonts.ready.then(() => {
       if (disposed) return
       term.open(el)
+      // sixel and iTerm inline images (fastfetch's picture logo)
+      term.loadAddon(new ImageAddon({ sixelSupport: true, iipSupport: true }))
       fit.fit()
+      // focused before xterm existed (a pane that just opened): take the keyboard now
+      if (cb.current.focused) term.focus()
       term.textarea?.addEventListener('focus', () => cb.current.onFocus())
       cleanups.push(api.onShellData((e) => e.id === id && term.write(e.data)))
       cleanups.push(
@@ -95,6 +131,7 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
         }),
       )
       const input = term.onData((data) => {
+        if (replaying) return
         if (!exited) return api.writeShell(id, data)
         if (data === '\r') {
           exited = false
@@ -112,7 +149,7 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
         raf = requestAnimationFrame(() => {
           if (!el.clientWidth || !el.clientHeight) return
           fit.fit()
-          api.resizeShell(id, term.cols, term.rows)
+          resize()
         })
       })
       ro.observe(el)
@@ -126,7 +163,7 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
         termFont.subscribe(() => {
           term.options.fontSize = termFont.get()
           fit.fit()
-          api.resizeShell(id, term.cols, term.rows)
+          resize()
         }),
       )
       const onWheel = (e: WheelEvent) => {
@@ -142,6 +179,7 @@ export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps)
 
     return () => {
       disposed = true
+      api.unwatchShell(id)
       termRef.current = null
       cleanups.forEach((c) => c())
       term.dispose()

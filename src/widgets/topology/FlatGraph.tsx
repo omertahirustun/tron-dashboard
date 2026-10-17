@@ -1,8 +1,15 @@
 import { useEffect, useRef } from 'react'
+import { frameLoop } from '../../lib/frameClock'
 import { sfx } from '../../lib/sfx'
 import { useOfficeStore } from '../../store/useOfficeStore'
 import { ORANGE, type GlobeProps, type Look } from './Globe'
 import type { TronNodeType } from './graph'
+
+/** redraw soon, even while the slow loop is resting (idle / background) */
+const invalidate = (u: { dirty: boolean; wake: () => void }) => {
+  u.dirty = true
+  u.wake()
+}
 
 // The flat view of a graph: graphify-style dots on a 2D force layout over a
 // dotted floor. Same props as the globe so GlobeView can swap them. Drag pans,
@@ -11,7 +18,6 @@ import type { TronNodeType } from './graph'
 
 const INK = '#b8d6dc'
 const DIM = '#5b7a82'
-const IDLE_FRAME_MS = 1000 / 15
 
 type P2 = [number, number]
 
@@ -131,7 +137,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
   const pos = useRef(new Map<string, P2>())
   // camera: world point at the centre of the canvas, and pixels per world unit
   const cam = useRef({ x: 0, y: 0, scale: 1, target: null as null | { x: number; y: number; scale: number }, fitted: false })
-  const ui = useRef({ hover: null as TronNodeType | null, dragging: false, moved: 0, dirty: true, fitRequest: true })
+  const ui = useRef({ hover: null as TronNodeType | null, dragging: false, moved: 0, dirty: true, fitRequest: true, wake: () => {} })
   const props = useRef({ nodes: [] as TronNodeType[], edges: [] as GlobeProps['edges'], look, focus, onPick })
 
   useEffect(() => {
@@ -141,7 +147,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       if (firstLayout) ui.current.fitRequest = true
     }
     props.current = { nodes, edges, look, focus, onPick }
-    ui.current.dirty = true
+    invalidate(ui.current)
   }, [nodes, edges, look, focus, onPick])
 
   // glide to the focused node
@@ -155,13 +161,13 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
   useEffect(() => {
     if (!resetKey) return
     ui.current.fitRequest = true
-    ui.current.dirty = true
+    invalidate(ui.current)
   }, [resetKey])
 
   useEffect(
     () =>
       useOfficeStore.subscribe((s, p) => {
-        if (s.selectedFile !== p.selectedFile) ui.current.dirty = true
+        if (s.selectedFile !== p.selectedFile) invalidate(ui.current)
       }),
     [],
   )
@@ -179,7 +185,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       h = el.clientHeight
       el.width = Math.round(w * dpr)
       el.height = Math.round(h * dpr)
-      ui.current.dirty = true
+      invalidate(ui.current)
     }
     resize()
     const ro = new ResizeObserver(resize)
@@ -345,10 +351,10 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       }
     }
 
-    let raf = 0
-    let lastDraw = 0
+    const loop = frameLoop((now) => tick(now))
+    // changes from outside (data, selection) draw even while the slow loop rests
+    ui.current.wake = () => loop.soon()
     const tick = (now: number) => {
-      raf = requestAnimationFrame(tick)
       const u = ui.current
       const c = cam.current
       if (u.fitRequest && fit()) u.fitRequest = false
@@ -363,13 +369,14 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       }
       const packets = props.current.edges.some((e) => e.data?.flowing)
       const fast = u.dragging || moving
+      // smooth while the user moves it; otherwise the shared 15 fps clock
+      if (fast) loop.soon()
+      else loop.slow()
       if (!fast && !u.dirty && !packets) return
-      if (!fast && !u.dirty && now - lastDraw < IDLE_FRAME_MS) return
-      lastDraw = now
       u.dirty = false
       draw(now)
     }
-    raf = requestAnimationFrame(tick)
+    loop.soon()
 
     const hit = (x: number, y: number) => {
       let best: TronNodeType | null = null
@@ -395,6 +402,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       ui.current.dragging = true
       ui.current.moved = 0
       cam.current.target = null
+      loop.soon()
       lx = e.clientX
       ly = e.clientY
     }
@@ -410,6 +418,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
         cam.current.y -= dy / cam.current.scale
         if (u.moved > 4) u.hover = null
         u.dirty = true
+        loop.soon()
         return
       }
       const { x, y } = local(e)
@@ -418,6 +427,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
         if (hNode) sfx.emit('hover', { source: 'topology.flat', node: hNode.id })
         u.hover = hNode
         u.dirty = true
+        loop.soon()
         el.style.cursor = hNode ? 'pointer' : 'grab'
       }
     }
@@ -447,6 +457,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
       c.x = wx - (x - w / 2) / c.scale
       c.y = wy - (y - h / 2) / c.scale
       ui.current.dirty = true
+      loop.soon()
     }
     el.addEventListener('pointerdown', down)
     el.addEventListener('pointermove', move)
@@ -455,7 +466,7 @@ export function FlatGraph({ nodes, edges, look, focus, resetKey, onPick }: Globe
     el.addEventListener('pointerleave', leave)
     el.addEventListener('wheel', wheel, { passive: false })
     return () => {
-      cancelAnimationFrame(raf)
+      loop.stop()
       ro.disconnect()
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('pointermove', move)

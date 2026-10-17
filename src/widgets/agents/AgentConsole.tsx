@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { GitBranch, Maximize2, Minimize2, Play, Power, TerminalSquare, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { GitBranch, GripVertical, Maximize2, Minimize2, Play, Power, TerminalSquare, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { TronButton } from '../../components/TronButton'
 import { sfx } from '../../lib/sfx'
@@ -153,7 +153,7 @@ function ConsoleBody({ target, session, loaded }: { target: AgentConsoleTarget; 
     return <p className="p-4 text-[12px] text-dim">The agent console runs in the desktop app (npm run app).</p>
   if (pane)
     return (
-      <div className="min-h-0 flex-1 bg-[#020506]/80 pt-1 pb-3">
+      <div className="min-h-0 flex-1 pt-1 pb-3">
         <ShellView id={pane} focused isWindowKey={isCloseKey} onFocus={() => {}} />
       </div>
     )
@@ -261,6 +261,9 @@ export function AgentConsole({ target }: { target: AgentConsoleTarget }) {
         transition={SPRING}
         onAnimationComplete={() => setReady(true)}
       >
+        {/* the widgets' frame: HUD brackets on the two square corners */}
+        <span className="hud-corner" data-at="tr" aria-hidden />
+        <span className="hud-corner" data-at="bl" aria-hidden />
         {/* light sweep down the frame as it opens */}
         <motion.span
           className="agent-console-scan"
@@ -278,7 +281,7 @@ export function AgentConsole({ target }: { target: AgentConsoleTarget }) {
         >
           {/* drag to move, double-click to maximize */}
           <header
-            className="flex h-10 shrink-0 cursor-grab items-center gap-2 border-b border-cyan-line/60 px-3 text-[12px] select-none active:cursor-grabbing"
+            className="relative flex h-8 shrink-0 cursor-grab items-center gap-2 pr-1.5 pl-3 text-[12px] select-none active:cursor-grabbing"
             onPointerDown={(e) => {
               if (!(e.target as Element).closest('button')) begin('move', e)
             }}
@@ -286,8 +289,11 @@ export function AgentConsole({ target }: { target: AgentConsoleTarget }) {
               if (!(e.target as Element).closest('button')) toggleMaximized()
             }}
           >
-            <TerminalSquare size={14} className={state === 'thinking' || state === 'tool' ? 'text-orange' : 'text-cyan'} aria-hidden />
-            <h2 className="truncate font-medium text-white">{session?.project ?? target.cwd?.split('/').pop() ?? 'agent'}</h2>
+            <GripVertical size={13} className="shrink-0 text-dim" aria-hidden />
+            <TerminalSquare size={13} className={`shrink-0 ${state === 'thinking' || state === 'tool' ? 'text-orange' : 'text-cyan'}`} aria-hidden />
+            <h2 lang="en" className="widget-title min-w-0 truncate">
+              {session?.project ?? target.cwd?.split('/').pop() ?? 'agent'}
+            </h2>
             {session?.branch && session.branch !== 'HEAD' && (
               <span className="flex items-center gap-0.5 text-[11px] text-dim">
                 <GitBranch size={11} aria-hidden />
@@ -333,6 +339,7 @@ export function AgentConsole({ target }: { target: AgentConsoleTarget }) {
             <TronButton sfxSource="agents.close" onClick={close} aria-label="Close console" title="Close (Esc); the agent keeps running. Shift+Esc interrupts claude">
               <X size={13} />
             </TronButton>
+            <span className="widget-rule" aria-hidden />
           </header>
           {asks.length > 0 && (
             <div className="shrink-0 space-y-1.5 border-b border-orange/40 p-2">

@@ -1,8 +1,15 @@
 import { useEffect, useRef } from 'react'
+import { frameLoop } from '../../lib/frameClock'
 import { sfx } from '../../lib/sfx'
 import { useOfficeStore } from '../../store/useOfficeStore'
 import type { DataEdgeType, TronNodeType } from './graph'
 import { greatArc, lattice, layoutSphere, type Vec3 } from './sphereLayout'
+
+/** redraw soon, even while the slow loop is resting (idle / background) */
+const invalidate = (u: { dirty: boolean; wake: () => void }) => {
+  u.dirty = true
+  u.wake()
+}
 
 // The globe: nodes sit on a sphere, links run as great-circle arcs over its
 // surface, and a faint lattice gives the sphere its shape even with few nodes.
@@ -17,7 +24,6 @@ const DIM = '#5b7a82'
 const LATTICE = lattice(260)
 const CAMERA = 3.2 // camera distance in sphere radii
 const AUTO_SPEED = 0.07 // rad/s
-const IDLE_FRAME_MS = 1000 / 15
 const PITCH_LIMIT = 1.5
 
 export interface Look {
@@ -81,7 +87,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
   // arc points per edge on the unit sphere; only change when the layout does
   const arcs = useRef(new Map<string, Vec3[]>())
   const view = useRef({ yaw: 0.6, pitch: -0.35, zoom: 1, vYaw: 0, vPitch: 0, target: null as null | { yaw: number; pitch: number } })
-  const ui = useRef({ hover: null as TronNodeType | null, dragging: false, moved: 0, dirty: true })
+  const ui = useRef({ hover: null as TronNodeType | null, dragging: false, moved: 0, dirty: true, wake: () => {} })
   // starts empty so the first effect run lays the graph out
   const props = useRef({ nodes: [] as TronNodeType[], edges: [] as DataEdgeType[], look, focus, spin, onPick })
 
@@ -91,7 +97,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       arcs.current.clear()
     }
     props.current = { nodes, edges, look, focus, spin, onPick }
-    ui.current.dirty = true
+    invalidate(ui.current)
   }, [nodes, edges, look, focus, spin, onPick])
 
   // turn the focused node to the front
@@ -109,14 +115,14 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
   useEffect(() => {
     if (!resetKey) return
     Object.assign(view.current, { zoom: 1, pitch: -0.35, vYaw: 0, vPitch: 0, target: null })
-    ui.current.dirty = true
+    invalidate(ui.current)
   }, [resetKey])
 
   // redraw when the selection or chat state changes while the globe is still
   useEffect(
     () =>
       useOfficeStore.subscribe((s, p) => {
-        if (s.activeAgent !== p.activeAgent || s.selectedFile !== p.selectedFile || s.chat !== p.chat) ui.current.dirty = true
+        if (s.activeAgent !== p.activeAgent || s.selectedFile !== p.selectedFile || s.chat !== p.chat) invalidate(ui.current)
       }),
     [],
   )
@@ -134,7 +140,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       h = el.clientHeight
       el.width = Math.round(w * dpr)
       el.height = Math.round(h * dpr)
-      ui.current.dirty = true
+      invalidate(ui.current)
     }
     resize()
     const ro = new ResizeObserver(resize)
@@ -345,11 +351,11 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       }
     }
 
-    let raf = 0
     let last = 0
-    let lastDraw = 0
+    const loop = frameLoop((now) => tick(now))
+    // changes from outside (data, selection) draw even while the slow loop rests
+    ui.current.wake = () => loop.soon()
     const tick = (now: number) => {
-      raf = requestAnimationFrame(tick)
       const dt = Math.min(0.05, (now - (last || now)) / 1000)
       last = now
       const v = view.current
@@ -376,13 +382,14 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       if (spinning) v.yaw += AUTO_SPEED * dt
       const hasPackets = edges.some((e) => e.data?.flowing)
       const fast = u.dragging || coasting || turning
+      // smooth while the user moves it; otherwise the shared 15 fps clock
+      if (fast) loop.soon()
+      else loop.slow()
       if (!fast && !u.dirty && !spinning && !hasPackets) return
-      if (!fast && now - lastDraw < IDLE_FRAME_MS) return
-      lastDraw = now
       u.dirty = false
       draw(now)
     }
-    raf = requestAnimationFrame(tick)
+    loop.soon()
 
     // ── pointer: drag rotates (with inertia), wheel zooms, click picks a node
     const hit = (x: number, y: number) => {
@@ -409,6 +416,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       el.setPointerCapture(e.pointerId)
       ui.current.dragging = true
       ui.current.moved = 0
+      loop.soon()
       lx = e.clientX
       ly = e.clientY
       Object.assign(view.current, { vYaw: 0, vPitch: 0, target: null })
@@ -435,6 +443,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
         if (h) sfx.emit('hover', { source: 'topology.globe', node: h.id })
         u.hover = h
         u.dirty = true
+        loop.soon()
         el.style.cursor = h ? 'pointer' : 'grab'
       }
     }
@@ -457,6 +466,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
       e.preventDefault()
       view.current.zoom = Math.max(0.5, Math.min(3, view.current.zoom * Math.exp(-e.deltaY * 0.0015)))
       ui.current.dirty = true
+      loop.soon()
     }
     el.addEventListener('pointerdown', down)
     el.addEventListener('pointermove', move)
@@ -465,7 +475,7 @@ export function Globe({ nodes, edges, look, focus, spin, resetKey, onPick }: Glo
     el.addEventListener('pointerleave', leave)
     el.addEventListener('wheel', wheel, { passive: false })
     return () => {
-      cancelAnimationFrame(raf)
+      loop.stop()
       ro.disconnect()
       el.removeEventListener('pointerdown', down)
       el.removeEventListener('pointermove', move)

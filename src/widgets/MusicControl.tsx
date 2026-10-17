@@ -44,10 +44,12 @@ export function MusicControl() {
     setShowLists(false)
   }
 
-  // the YouTube Music window starts (hidden) with the dashboard and reports every second
+  // The YouTube Music window (hidden) starts on first use: search, play, a
+  // playlist or the sign-in window. Until then it would hold a few hundred MB and
+  // be polled every second for nothing. Once open it reports every second.
   useEffect(() => {
     if (!native) return
-    void native.openMusic()
+    void native.getMusicState().then((s) => s && setState(s))
     return native.onMusicState(setState)
   }, [])
 
@@ -119,7 +121,7 @@ export function MusicControl() {
     <Widget
       title="yt.music"
       icon={Music2}
-      status={!native ? <span className="text-orange">sample</span> : state?.ad ? <span className="text-orange" title="Sign in with YouTube Premium in the YouTube Music window to skip ads">ad</span> : playing ? <span className="text-cyan">playing</span> : state?.ready ? 'paused' : 'loading…'}
+      status={!native ? <span className="text-orange">sample</span> : state?.ad ? <span className="text-orange" title="Sign in with YouTube Premium in the YouTube Music window to skip ads">ad</span> : playing ? <span className="text-cyan">playing</span> : state?.ready ? 'paused' : state ? 'loading…' : 'off'}
       actions={
         native && (
           <>

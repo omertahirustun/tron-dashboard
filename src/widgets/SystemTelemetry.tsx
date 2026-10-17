@@ -80,7 +80,7 @@ export function SystemTelemetry() {
             <span
               key={i}
               title={`thread ${i}: ${v.toFixed(0)}%`}
-              className="h-1.5 transition-colors duration-300"
+              className="h-1.5"
               style={{ background: levelColor[loadLevel(v)], opacity: 0.12 + (v / 100) * 0.88 }}
             />
           ))}

@@ -6,9 +6,14 @@ const path = require('node:path')
 
 const SEP = '\x1f'
 
+// GIT_OPTIONAL_LOCKS=0: `git status` would otherwise refresh .git/index, which
+// the watcher below sees as a change and answers with another status: a loop
+// that kept spawning git several times a second.
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+
 function git(cwd, args) {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout: 5000, maxBuffer: 1024 * 1024 }, (err, stdout) =>
+    execFile('git', args, { cwd, env: GIT_ENV, timeout: 5000, maxBuffer: 1024 * 1024 }, (err, stdout) =>
       err ? reject(err) : resolve(stdout.trimEnd()),
     )
   })
@@ -93,7 +98,9 @@ function createGit() {
     if (watchers.has(cwd)) return
     const gitDir = path.join(cwd, '.git')
     let timer = null
-    const fire = () => {
+    const fire = (_event, file) => {
+      // lock files come and go around every git command, ours included
+      if (typeof file === 'string' && file.endsWith('.lock')) return
       clearTimeout(timer)
       timer = setTimeout(() => onChange(cwd), 300)
     }

@@ -12,6 +12,7 @@ const fs = require('node:fs')
 const settingsStore = require('./settings.cjs')
 const { createWorkspace } = require('./ipc/workspace.cjs')
 const { createPtyClient } = require('./ipc/pty-client.cjs')
+const { shellCommand } = require('./ipc/pty.cjs')
 const { createGit } = require('./ipc/git.cjs')
 const { createCodeGraph } = require('./ipc/codegraph.cjs')
 const { createMetricsStream } = require('./ipc/metrics.cjs')
@@ -130,8 +131,35 @@ function registerIpc() {
   const workspace = createWorkspace(settings)
   const git = createGit()
   const codeGraph = createCodeGraph(git)
-  // terminals live in the background PTY host and survive the app
-  const pty = createPtyClient(send)
+  // terminals live in the background PTY host and survive the app. Their output
+  // only goes to windows that show that terminal: the host streams every shell
+  // (agents' TUIs redraw constantly), and a window without a view for it would
+  // just parse and drop it.
+  const watching = new Map() // webContents id -> Set of pane ids on screen there
+  const ptySend = (channel, payload) => {
+    if (channel !== 'pty:data') return send(channel, payload)
+    for (const w of [win, termWin]) {
+      if (w && !w.isDestroyed() && watching.get(w.webContents.id)?.has(payload.id)) w.webContents.send(channel, payload)
+    }
+  }
+  const watch = (event, id) => {
+    const wc = event.sender
+    if (!watching.has(wc.id)) {
+      watching.set(wc.id, new Set())
+      // a reload or a closed window starts over (its views re-register on mount)
+      const forget = () => {
+        watching.delete(wc.id)
+        wc.off('did-start-navigation', onNavigate)
+      }
+      const onNavigate = (details) => {
+        if (details.isMainFrame && !details.isSameDocument) forget()
+      }
+      wc.on('did-start-navigation', onNavigate)
+      wc.once('destroyed', forget)
+    }
+    watching.get(wc.id).add(String(id))
+  }
+  const pty = createPtyClient(ptySend)
   void pty.connect().catch((e) => console.error('[pty]', e.message))
   const metrics = createMetricsStream((s) => send('metrics:sample', s))
   const network = createNetworkMonitor(settings, send)
@@ -149,9 +177,18 @@ function registerIpc() {
   handle('workspace:read-dir', (p) => workspace.readDir(p))
   handle('workspace:read-file', (p) => workspace.readFile(p))
 
-  handle('pty:start', (id, cols, rows) => pty.start(id, cols, rows))
+  // the app names the shell, not the PTY host: a host started by an older version
+  // keeps running (with the user's terminals) and would use its own old command
+  ipcMain.handle('pty:start', (event, id, cols, rows, width, height) => {
+    if (!trusted(event)) throw new Error('Untrusted sender')
+    watch(event, id)
+    return pty.start(id, cols, rows, shellCommand(), width, height)
+  })
+  ipcMain.on('pty:unwatch', (event, id) => {
+    if (trusted(event)) watching.get(event.sender.id)?.delete(String(id))
+  })
   on('pty:write', (id, data) => pty.write(id, data))
-  on('pty:resize', (id, cols, rows) => pty.resize(id, cols, rows))
+  on('pty:resize', (id, cols, rows, width, height) => pty.resize(id, cols, rows, width, height))
   on('pty:kill', (id) => pty.kill(id))
   handle('window:terminal', () => openTerminalWindow())
   handle('window:focus', () => {

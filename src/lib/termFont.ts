@@ -2,7 +2,8 @@
 // window) and remembered. Ctrl+= / Ctrl+- / Ctrl+0 or Ctrl+wheel change it.
 
 const KEY = 'aod.termFont.v1'
-export const FONT_DEFAULT = 12
+// foot's 12 pt (dpi-aware=no) is 16 px
+export const FONT_DEFAULT = 16
 const MIN = 8
 const MAX = 28
 

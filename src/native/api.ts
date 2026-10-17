@@ -231,10 +231,13 @@ export interface NativeApi {
   readFile(path: string): Promise<FileSnippet>
 
   /** start (or reattach to) the shell of terminal pane `id` */
-  startShell(id: string, cols: number, rows: number): Promise<{ shell: string; backlog: string; restarted: boolean }>
+  startShell(id: string, cols: number, rows: number, width?: number, height?: number): Promise<{ shell: string; backlog: string; restarted: boolean }>
   writeShell(id: string, data: string): void
-  resizeShell(id: string, cols: number, rows: number): void
+  /** width/height: the character grid in pixels (TIOCGWINSZ), for image tools */
+  resizeShell(id: string, cols: number, rows: number, width?: number, height?: number): void
   killShell(id: string): void
+  /** stop sending this shell's output to this window (its view unmounted) */
+  unwatchShell(id: string): void
   onShellData(cb: (e: { id: string; data: string }) => void): Unsubscribe
   onShellExit(cb: (e: { id: string; code: number | null }) => void): Unsubscribe
   openTerminalWindow(): Promise<void>

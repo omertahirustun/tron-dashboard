@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-// Where the agent console sits: dragged by its header, resized from any edge or
-// corner, maximized to the whole window. Remembered across openings.
+// Where a console sits: dragged by its header, resized from any edge or corner,
+// maximized to the whole window. The agent console remembers its own across
+// openings; floating terminals pass in where each one keeps its geometry.
 
 export interface Rect {
   x: number
@@ -11,6 +12,11 @@ export interface Rect {
 }
 /** n, s, e, w, ne, nw, se, sw; or "move" */
 export type Gesture = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+export interface ConsoleGeometry {
+  rect: Rect
+  maximized: boolean
+}
 
 const KEY = 'aod.console.v1'
 const MIN_W = 420
@@ -24,7 +30,7 @@ function defaultRect(): Rect {
 
 const fullRect = (): Rect => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight })
 
-function clamp(r: Rect): Rect {
+export function clamp(r: Rect): Rect {
   const width = Math.min(Math.max(r.width, MIN_W), window.innerWidth)
   const height = Math.min(Math.max(r.height, MIN_H), window.innerHeight)
   // wholly on screen, so every edge and the corner grip stay within reach
@@ -36,7 +42,7 @@ function clamp(r: Rect): Rect {
   }
 }
 
-function load(): { rect: Rect; maximized: boolean } {
+function load(): ConsoleGeometry {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null')
     if (saved?.rect) return { rect: clamp(saved.rect), maximized: Boolean(saved.maximized) }
@@ -46,7 +52,7 @@ function load(): { rect: Rect; maximized: boolean } {
   return { rect: defaultRect(), maximized: false }
 }
 
-function save(state: { rect: Rect; maximized: boolean }) {
+function save(state: ConsoleGeometry) {
   try {
     localStorage.setItem(KEY, JSON.stringify(state))
   } catch {
@@ -58,8 +64,9 @@ function save(state: { rect: Rect; maximized: boolean }) {
  * Geometry of the console. During a drag the element is moved directly (no
  * React render per pointer move); the result is committed on release.
  */
-export function useConsoleRect() {
-  const [state, setState] = useState(load)
+export function useConsoleRect(store: { load: () => ConsoleGeometry; save: (g: ConsoleGeometry) => void } = { load, save }) {
+  const [state, setState] = useState(store.load)
+  const persist = useRef(store.save)
   const el = useRef<HTMLElement | null>(null)
   const shown = state.maximized ? fullRect() : state.rect
 
@@ -70,15 +77,15 @@ export function useConsoleRect() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const commit = useCallback((next: { rect: Rect; maximized: boolean }) => {
+  const commit = useCallback((next: ConsoleGeometry) => {
     setState(next)
-    save(next)
+    persist.current(next)
   }, [])
 
   const toggleMaximized = useCallback(() => {
     setState((s) => {
       const next = { ...s, maximized: !s.maximized }
-      save(next)
+      persist.current(next)
       return next
     })
   }, [])

@@ -27,7 +27,8 @@ function which(bin) {
 function shellCommand() {
   const fish = which('fish')
   const fastfetch = which('fastfetch')
-  if (fish) return { name: 'fish', argv: [fish, ...(fastfetch ? ['-C', 'fastfetch'] : [])], greet: null }
+  // fish greets with the user's own fish_greeting (theirs runs fastfetch)
+  if (fish) return { name: 'fish', argv: [fish], greet: null }
   const bash = which('bash') || '/bin/sh'
   return { name: path.basename(bash), argv: [bash, '-i'], greet: fastfetch ? 'fastfetch\r' : null }
 }
@@ -43,11 +44,11 @@ class PtyManager {
    * Start the pane's shell if needed; returns what the pane needs to (re)draw.
    * `spec` runs something else than the login shell: { name, argv, cwd, env }.
    */
-  start(id, cols, rows, spec) {
+  start(id, cols, rows, spec, width, height) {
     const key = String(id)
     const existing = this.sessions.get(key)
     if (existing?.proc) {
-      this.resize(key, cols, rows)
+      this.resize(key, cols, rows, width, height)
       return { shell: existing.shell, backlog: existing.backlog, restarted: false }
     }
     const sh = spec ?? shellCommand()
@@ -72,6 +73,8 @@ class PtyManager {
       session.proc = null
       this.send('pty:exit', { id: key, code })
     })
+    // the pixel size goes in before the shell starts drawing (fastfetch sizes its logo)
+    if (width && height) this.resize(key, cols, rows, width, height)
     if (sh.greet) setTimeout(() => this.write(key, sh.greet), 300)
     return { shell: sh.name, backlog: '', restarted: true }
   }
@@ -89,11 +92,12 @@ class PtyManager {
     if (proc && typeof data === 'string') proc.stdin.write(data)
   }
 
-  resize(id, cols, rows) {
+  resize(id, cols, rows, width, height) {
     const proc = this.sessions.get(String(id))?.proc
     const c = Math.floor(cols)
     const r = Math.floor(rows)
-    if (proc && c > 0 && r > 0) proc.stdio[3].write(`${c} ${r}\n`)
+    const px = width > 0 && height > 0 ? ` ${Math.floor(width)} ${Math.floor(height)}` : ''
+    if (proc && c > 0 && r > 0) proc.stdio[3].write(`${c} ${r}${px}\n`)
   }
 
   /** Close one pane's shell for good (its backlog goes too). */
@@ -109,4 +113,4 @@ class PtyManager {
   }
 }
 
-module.exports = { PtyManager, which }
+module.exports = { PtyManager, which, shellCommand }

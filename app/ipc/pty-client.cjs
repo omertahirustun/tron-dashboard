@@ -128,19 +128,19 @@ function createPtyClient(send) {
 
   return {
     connect,
-    async start(id, cols, rows, spec) {
+    async start(id, cols, rows, spec, width, height) {
       const s = await connect()
       const req = ++seq
       const result = await new Promise((resolve, reject) => {
         replies.set(req, { resolve, reject })
-        s.write(`${JSON.stringify({ t: 'start', req, id: String(id), cols, rows, spec })}\n`)
+        s.write(`${JSON.stringify({ t: 'start', req, id: String(id), cols, rows, spec, width, height })}\n`)
       })
       alive.add(String(id))
       return result
     },
     alive: (id) => alive.has(String(id)),
     write: (id, data) => post({ t: 'write', id: String(id), data }),
-    resize: (id, cols, rows) => post({ t: 'resize', id: String(id), cols, rows }),
+    resize: (id, cols, rows, width, height) => post({ t: 'resize', id: String(id), cols, rows, width, height }),
     kill(id) {
       alive.delete(String(id))
       post({ t: 'kill', id: String(id) })

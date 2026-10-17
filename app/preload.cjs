@@ -19,10 +19,12 @@ contextBridge.exposeInMainWorld('api', {
   readFile: (path) => ipcRenderer.invoke('workspace:read-file', path),
 
   // shells, one per terminal pane (id chosen by the page)
-  startShell: (id, cols, rows) => ipcRenderer.invoke('pty:start', id, cols, rows),
+  startShell: (id, cols, rows, width, height) => ipcRenderer.invoke('pty:start', id, cols, rows, width, height),
   writeShell: (id, data) => ipcRenderer.send('pty:write', id, data),
-  resizeShell: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
+  resizeShell: (id, cols, rows, width, height) => ipcRenderer.send('pty:resize', id, cols, rows, width, height),
   killShell: (id) => ipcRenderer.send('pty:kill', id),
+  /** this view stopped showing the shell: its output needn't come here any more */
+  unwatchShell: (id) => ipcRenderer.send('pty:unwatch', id),
   onShellData: (cb) => listen('pty:data', cb),
   onShellExit: (cb) => listen('pty:exit', cb),
   openTerminalWindow: () => ipcRenderer.invoke('window:terminal'),

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { frameLoop } from '../../lib/frameClock'
 import { native } from '../../native/api'
 
 /**
@@ -111,8 +112,10 @@ export function NeonRing({ playing, art, title }: Props) {
   useEffect(() => {
     const canvas = canvasRef.current!
     const g = canvas.getContext('2d')!
-    let raf = 0
+    let running = false
     let lastFrame = 0
+    // on the shared clock (30 = every half tick of the 15 fps grid)
+    const loop = frameLoop((now) => frame(now), { keepWhenIdle: true })
     let w = 0, h = 0, dpr = 1
     const levels: number[] = []
     let bass = 0
@@ -272,22 +275,19 @@ export function NeonRing({ playing, art, title }: Props) {
     }
 
     const frame = (now: number) => {
-      raf = 0
-      if (now - lastFrame < 1000 / FPS - 2) {
-        raf = requestAnimationFrame(frame)
-        return
-      }
       const dt = Math.min(0.1, (now - (lastFrame || now - 33)) / 1000)
       lastFrame = now
       const moving = draw(dt)
       // keep going while playing or while the light dies down; otherwise rest
-      if (live.current.playing || moving) raf = requestAnimationFrame(frame)
+      running = live.current.playing || moving
+      if (running) loop.slow(FPS)
     }
 
     kick.current = () => {
-      if (!raf) {
+      if (!running) {
+        running = true
         lastFrame = performance.now() - 1000 / FPS
-        raf = requestAnimationFrame(frame)
+        loop.slow(FPS)
       }
     }
 
@@ -296,7 +296,7 @@ export function NeonRing({ playing, art, title }: Props) {
     kick.current()
     return () => {
       ro.disconnect()
-      cancelAnimationFrame(raf)
+      loop.stop()
       kick.current = () => {}
     }
   }, [])

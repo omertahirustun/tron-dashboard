@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { motionAllowed } from '../lib/frameClock'
 import { useSessions } from '../native/useSessions'
 
 /** Identity disc: two lit rings and a segmented core. Spins once on hover (CSS). */
@@ -27,7 +28,8 @@ export function LightCycles() {
   const nextId = useRef(0)
 
   useEffect(() => {
-    const ride = () => setRides((r) => [...r, { id: nextId.current++, tone: busy ? 'busy' : 'idle' }])
+    // none while the window is in the background or idle (like the backdrop)
+    const ride = () => motionAllowed() && setRides((r) => [...r, { id: nextId.current++, tone: busy ? 'busy' : 'idle' }])
     const first = setTimeout(ride, 1500)
     const id = setInterval(ride, busy ? 8000 : 30000)
     return () => {

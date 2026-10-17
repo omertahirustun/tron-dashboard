@@ -6,7 +6,8 @@ import { defineConfig, type Plugin } from 'vite'
 // own files. Dev mode skips this (Vite's HMR needs inline scripts and eval).
 const CSP = [
   "default-src 'self' file:",
-  "script-src 'self' file:",
+  // 'wasm-unsafe-eval': the terminal's sixel decoder is WebAssembly (no JS eval)
+  "script-src 'self' file: 'wasm-unsafe-eval'",
   "style-src 'self' file: 'unsafe-inline'",
   // album art from YouTube Music
   "img-src 'self' file: data: https://*.googleusercontent.com https://*.ggpht.com https://i.ytimg.com",

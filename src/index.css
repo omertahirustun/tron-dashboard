@@ -69,53 +69,51 @@ body {
   scrollbar-color: rgb(13 230 255 / 0.3) transparent;
 }
 
-/* ── Perspective floor ───────────────────────────────────────────── */
-/* Every glass panel blurs what is behind it, so each frame of floor motion
-   re-renders all nine blurs. The floor drifts slowly (~11 px/s), so it steps at
-   15 fps (sub-pixel steps, still smooth) instead of 60: about a quarter of the cost. */
+/* ── Backdrop: city skyline + grid floor ─────────────────────────── */
+/* The floor and everything alive in the city are drawn into one canvas at 15 fps
+   (src/components/TronCity.tsx): each frame of motion re-renders the glass blur of
+   every panel, so one capped layer is all that moves. */
 .grid-floor {
+  --horizon: 46%;
   position: fixed;
   inset: 0;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: radial-gradient(ellipse 70% 40% at 50% 34%, rgb(13 230 255 / 0.07), transparent 70%);
+  background: radial-gradient(ellipse 70% 40% at 50% var(--horizon), rgb(13 230 255 / 0.07), transparent 70%);
 }
 
-.grid-floor-view {
+/* the skyline is clipped at the horizon and rises out of it once, on boot */
+.tron-city {
+  position: absolute;
+  inset: 0 0 auto 0;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.55), #000 30%);
+}
+
+.tron-city-img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  opacity: 0.82;
+  animation: city-rise 2.6s cubic-bezier(0.16, 0.8, 0.24, 1) backwards;
+}
+
+@keyframes city-rise {
+  from {
+    transform: translateY(42%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.5;
+  }
+}
+
+.tron-canvas {
   position: absolute;
   inset: 0;
-  perspective: 520px;
-  perspective-origin: 50% 32%;
-  mask-image: linear-gradient(to bottom, transparent 34%, #000 46%, #000 72%, transparent 100%);
-}
-
-.grid-plane {
-  position: absolute;
-  left: -50%;
-  right: -50%;
-  top: 34%;
-  height: 160%;
-  transform-origin: top center;
-  /* fine grid, plus a brighter "major" line every fourth cell */
-  background-image:
-    linear-gradient(to right, rgb(13 230 255 / 0.34) 2px, transparent 2px),
-    linear-gradient(to bottom, rgb(13 230 255 / 0.34) 2px, transparent 2px),
-    linear-gradient(to right, rgb(13 230 255 / 0.13) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(13 230 255 / 0.13) 1px, transparent 1px);
-  background-size:
-    256px 256px,
-    256px 256px,
-    64px 64px,
-    64px 64px;
-  transform: rotateX(72deg) translateY(-256px);
-  animation: floor-run 24s steps(360) infinite;
-}
-
-@keyframes floor-run {
-  to {
-    transform: rotateX(72deg) translateY(0);
-  }
+  width: 100%;
+  height: 100%;
 }
 
 /* horizon line */
@@ -124,7 +122,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: 34%;
+  top: var(--horizon);
   height: 1px;
   background: linear-gradient(to right, transparent, rgb(13 230 255 / 0.5) 20%, #dffcff 50%, rgb(13 230 255 / 0.5) 80%, transparent);
   box-shadow:
@@ -138,7 +136,7 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 45% 9% at 50% 34%, rgb(13 230 255 / 0.16), transparent 70%),
+    radial-gradient(ellipse 45% 9% at 50% var(--horizon), rgb(13 230 255 / 0.16), transparent 70%),
     radial-gradient(ellipse 120% 90% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.75) 100%);
 }
 
@@ -178,6 +176,37 @@ body::after {
   to {
     opacity: 1;
   }
+}
+
+/* ── HUD gauge (components/Ring.tsx) ─────────────────────────────── */
+.hud-gauge {
+  aspect-ratio: 1;
+  container-type: inline-size;
+}
+.hud-gauge-value {
+  font-family: var(--font-display);
+  font-size: 19cqw;
+  font-weight: 700;
+  line-height: 1;
+  color: currentColor;
+  text-shadow: 0 0 10px color-mix(in srgb, currentColor 70%, transparent);
+}
+.hud-gauge-unit {
+  margin-left: 1px;
+  font-size: 9cqw;
+  font-weight: 500;
+  color: var(--color-dim);
+  text-shadow: none;
+}
+.hud-gauge-caption {
+  margin-top: 3cqw;
+  font-family: var(--font-display);
+  font-size: 7.5cqw;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #dffcff;
+  opacity: 0.8;
 }
 
 /* ── Widget frame ────────────────────────────────────────────────── */
@@ -272,7 +301,9 @@ body::after {
   background: linear-gradient(90deg, rgb(13 230 255 / 0.15), rgb(13 230 255 / 0.75) 30%, rgb(13 230 255 / 0.75) 70%, rgb(13 230 255 / 0.15));
   box-shadow: 0 0 8px rgb(13 230 255 / 0.5);
   transform-origin: left;
-  animation: power-on 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) var(--boot-delay, 0s) both;
+  /* backwards, not both: a finished animation that still fills keeps its own
+     compositor layer for good */
+  animation: power-on 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) var(--boot-delay, 0s) backwards;
 }
 .widget[data-tone='alert'] .widget-rule {
   background: linear-gradient(90deg, transparent, var(--color-crit), transparent);
@@ -348,14 +379,15 @@ body::after {
   background: linear-gradient(90deg, transparent, rgb(13 230 255 / 0.6) 70%, #fff);
   box-shadow: 0 0 10px 1px rgb(13 230 255 / 0.8);
   transform: translateX(-240px);
-  animation: cycle-run 2.6s cubic-bezier(0.45, 0, 0.3, 1) forwards;
+  /* stepped at 15 fps, like everything else that moves */
+  animation: cycle-run 2.6s steps(39, end) forwards;
 }
 
 .light-cycle[data-tone='busy'] {
   background: linear-gradient(270deg, transparent, rgb(255 140 0 / 0.6) 70%, #fff3e0);
   box-shadow: 0 0 10px 1px rgb(255 140 0 / 0.85);
   transform: translateX(100vw);
-  animation: cycle-run-back 1.9s cubic-bezier(0.45, 0, 0.3, 1) forwards;
+  animation: cycle-run-back 1.9s steps(28, end) forwards;
 }
 
 @keyframes cycle-run {
@@ -582,19 +614,64 @@ body::after {
 }
 
 /* agent console: a big terminal grown out of an agents.live card */
+/* agent console and floating terminals: the same glass frame as the widgets
+   (bevelled top-left / bottom-right, HUD brackets, lit header rule), lifted a
+   little off the dashboard with a deeper glow */
 .agent-console {
   will-change: transform, opacity;
-  border-color: var(--color-cyan);
-  background: rgb(3 9 11 / 0.97);
+  background: linear-gradient(160deg, rgb(10 24 30 / 0.86), rgb(4 9 12 / 0.8));
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgb(13 230 255 / 0.45);
+  border-radius: 3px;
   box-shadow:
-    0 0 0 1px rgb(13 230 255 / 0.15),
-    0 0 60px -10px rgb(13 230 255 / 0.55),
-    inset 0 0 40px -20px rgb(13 230 255 / 0.5);
-  /* only the top-left corner is cut: the bottom-right one is the resize grip */
-  clip-path: polygon(var(--bevel) 0, 100% 0, 100% 100%, 0 100%, 0 var(--bevel));
+    var(--shadow-glow),
+    0 24px 60px -24px rgb(0 0 0 / 0.9),
+    inset 0 1px 0 rgb(13 230 255 / 0.12);
+  transition: border-color 0.2s;
+  /* fallback for the bevel below */
+  clip-path: polygon(var(--bevel) 0, 100% 0, 100% calc(100% - var(--bevel)), calc(100% - var(--bevel)) 100%, 0 100%, 0 var(--bevel));
+}
+@supports (corner-shape: bevel) {
+  .agent-console {
+    clip-path: none;
+    border-radius: var(--bevel) 3px var(--bevel) 3px;
+    corner-shape: bevel round bevel round;
+  }
 }
 .agent-console[data-maximized] {
   clip-path: none;
+  border-radius: 0;
+}
+.agent-console:focus-within {
+  border-color: var(--color-cyan);
+}
+/* light catching the top edge of the glass, as on the widgets */
+.agent-console::before {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(223 252 255 / 0.7), transparent);
+}
+
+/* floating terminals: more see-through, the dashboard stays visible around the text */
+.float-term {
+  background: linear-gradient(160deg, rgb(10 24 30 / 0.66), rgb(4 9 12 / 0.56));
+  backdrop-filter: blur(10px) saturate(1.2);
+}
+.float-term:not([data-focused]) {
+  border-color: var(--color-cyan-line);
+}
+.float-term:not([data-focused]) .hud-corner {
+  opacity: 0.4;
+}
+/* xterm paints its scroll viewport opaque black whatever the theme says */
+.agent-console .xterm-viewport {
+  background-color: transparent !important;
 }
 
 /* agent console resize handles: thin strips on the edges, squares at the corners */
@@ -650,26 +727,26 @@ body::after {
   left: 0;
   cursor: nesw-resize;
 }
-/* the visible one: Tron hatching in the bottom-right corner */
+/* the visible one: the widgets' resize bracket, inside the bevelled corner */
 .console-grip[data-edge='se'] {
   bottom: 0;
   right: 0;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   cursor: nwse-resize;
-  background: linear-gradient(
-    135deg,
-    transparent 45%,
-    var(--color-cyan) 45% 52%,
-    transparent 52% 64%,
-    var(--color-cyan) 64% 71%,
-    transparent 71% 83%,
-    var(--color-cyan) 83% 90%,
-    transparent 90%
-  );
-  opacity: 0.55;
 }
-.console-grip[data-edge='se']:hover {
+.console-grip[data-edge='se']::after {
+  content: '';
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--color-cyan);
+  border-bottom: 2px solid var(--color-cyan);
+  opacity: 0.45;
+}
+.console-grip[data-edge='se']:hover::after {
   opacity: 1;
 }
 /* while moving/resizing: no text selection, and the terminal doesn't eat the pointer */
@@ -693,9 +770,9 @@ body.console-gesture .xterm {
 
 /* stepped like the other idle glows: a smooth pulse repaints the blurred panels every frame */
 .agent-pulse {
+  /* a steady orange glow: an endless pulse would keep the compositor drawing
+     (and re-blurring every panel) the whole time an agent works */
   box-shadow: 0 0 8px var(--color-orange);
-  opacity: 0.35;
-  animation: breathe 0.8s steps(4, jump-none) infinite alternate;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -703,7 +780,7 @@ body.console-gesture .xterm {
     display: none;
   }
   .agent-pulse,
-  .grid-plane,
+  .tron-city-img,
   .glow-layer,
   .edge-flow,
   .caret,

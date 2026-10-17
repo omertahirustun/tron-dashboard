@@ -3,6 +3,7 @@ import { Bell, BellOff, Gamepad2, Lock, RotateCcw, SquareTerminal, Unlock } from
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import { IdentityDisc, LightCycles } from '../components/TronChrome'
+import { TronCity } from '../components/TronCity'
 import { TronButton } from '../components/TronButton'
 import { LightCycleGame } from '../game/LightCycleGame'
 import { chime } from '../lib/chime'
@@ -10,6 +11,8 @@ import { sfx } from '../lib/sfx'
 import { native } from '../native/api'
 import { useNativeSync } from '../native/useNativeSync'
 import { AgentConsoleHost } from '../widgets/agents/AgentConsole'
+import { FloatingTerminals } from '../widgets/terminal/FloatingTerminals'
+import { useFloatTerms } from '../widgets/terminal/floatingTerms'
 import { WIDGETS, type WidgetId } from '../widgets/registry'
 import { DashboardContext, type DashboardControls } from './DashboardContext'
 import { BREAKPOINTS, COLS, DEFAULT_LAYOUTS, ROWS, SM_ROW_HEIGHT, type Breakpoint } from './defaultLayouts'
@@ -86,6 +89,26 @@ function Clock() {
 }
 
 /** Mute / unmute the permission and finished-turn chimes; unmuting plays a sample. */
+/** opens one more shell window over the dashboard, grown out of the button */
+function TerminalButton() {
+  const count = useFloatTerms((s) => s.terms.length)
+  return (
+    <TronButton
+      sfxSource="toolbar.terminal"
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        useFloatTerms.getState().open({ x: r.x, y: r.y, width: r.width, height: r.height })
+      }}
+      aria-label="Open a new terminal"
+      title="New terminal over the dashboard (Alt+T)"
+    >
+      <SquareTerminal size={12} />
+      <span className="hidden sm:inline">Terminal</span>
+      {count > 0 && <span className="text-[10px] tabular-nums text-dim">{count}</span>}
+    </TronButton>
+  )
+}
+
 function SoundToggle() {
   const { muted } = useSyncExternalStore(chime.subscribe, chime.get)
   return (
@@ -138,11 +161,7 @@ export function Dashboard() {
 
   return (
     <DashboardContext.Provider value={controls}>
-      <div className="grid-floor" aria-hidden>
-        <div className="grid-floor-view">
-          <div className="grid-plane" />
-        </div>
-      </div>
+      <TronCity />
       <div className={`relative z-10 flex flex-col ${fit ? 'h-screen overflow-hidden' : 'min-h-screen'} ${locked ? 'layout-locked' : ''}`}>
         <header className="app-header relative flex h-12 items-center gap-3 border-b border-cyan-line/60 bg-void/70 px-4 backdrop-blur-md">
           <IdentityDisc />
@@ -154,10 +173,7 @@ export function Dashboard() {
           </span>
           <div className="ml-auto flex items-center gap-1 text-[12px]">
             {native && (
-              <TronButton sfxSource="toolbar.terminal" onClick={() => void native?.openTerminalWindow()} aria-label="Open the terminal window" title="Tiled terminals in their own window">
-                <SquareTerminal size={12} />
-                <span className="hidden sm:inline">Terminals</span>
-              </TronButton>
+              <TerminalButton />
             )}
             <TronButton sfxSource="toolbar.game" onClick={() => setGameOpen(true)} aria-label="Play light cycles" title="Light cycles on the Grid">
               <Gamepad2 size={12} />
@@ -236,6 +252,7 @@ export function Dashboard() {
           )}
         </main>
       </div>
+      <FloatingTerminals />
       <AgentConsoleHost />
       {gameOpen && <LightCycleGame onClose={() => setGameOpen(false)} />}
     </DashboardContext.Provider>

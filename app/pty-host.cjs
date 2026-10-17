@@ -7,7 +7,7 @@
 //
 // Protocol: newline-delimited JSON.
 //   app → host: { t: start, req, id, cols, rows, spec? } | { t: write, id, data }
-//               | { t: resize, id, cols, rows } | { t: kill, id }
+//               | { t: resize, id, cols, rows, width?, height? } | { t: kill, id }
 //   host → app: { t: hello, version, alive: [id] } | { t: reply, req, result | error }
 //               | { t: data, id, data } | { t: exit, id, code }
 
@@ -45,7 +45,7 @@ function handle(client, msg) {
     case 'start': {
       let reply
       try {
-        reply = { t: 'reply', req: msg.req, result: pty.start(msg.id, msg.cols, msg.rows, msg.spec ?? undefined) }
+        reply = { t: 'reply', req: msg.req, result: pty.start(msg.id, msg.cols, msg.rows, msg.spec ?? undefined, msg.width, msg.height) }
       } catch (e) {
         reply = { t: 'reply', req: msg.req, error: e.message }
       }
@@ -56,7 +56,7 @@ function handle(client, msg) {
       pty.write(msg.id, msg.data)
       break
     case 'resize':
-      pty.resize(msg.id, msg.cols, msg.rows)
+      pty.resize(msg.id, msg.cols, msg.rows, msg.width, msg.height)
       break
     case 'kill':
       pty.kill(msg.id)
