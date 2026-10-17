@@ -1,4 +1,6 @@
-// Read-only file access, limited to the configured workspace roots.
+// Read-only file access, limited to the workspace roots (which end with the
+// home folder and `/`, so in practice the whole computer).
+const os = require('node:os')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
@@ -13,7 +15,7 @@ function createWorkspace(settings) {
     const real = await fs.realpath(path.resolve(p))
     for (const root of settings.roots()) {
       const realRoot = await fs.realpath(root).catch(() => null)
-      if (realRoot && (real === realRoot || real.startsWith(realRoot + path.sep))) return real
+      if (realRoot && (real === realRoot || real.startsWith(realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep))) return real
     }
     throw new Error(`Outside the workspace: ${p}`)
   }
@@ -26,7 +28,8 @@ function createWorkspace(settings) {
           .stat(path.join(root, '.git'))
           .then(() => true)
           .catch(() => false)
-        out.push({ name: path.basename(root), path: root, isGit })
+        const name = root === '/' ? 'computer (/)' : root === os.homedir() ? 'home (~)' : path.basename(root)
+        out.push({ name, path: root, isGit })
       }
       return out
     },

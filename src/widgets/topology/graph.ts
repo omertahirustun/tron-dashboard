@@ -15,6 +15,22 @@ export type TronNodeData =
   | { kind: 'note'; label: string; path: string; op?: 'read' | 'edit' | 'write'; live?: boolean }
   | { kind: 'hub'; label: string; role: string }
   | {
+      /** a file (or an external package when `path` is null) in the code graph */
+      kind: 'code'
+      label: string
+      path: string | null
+      /** top folder, graphify community, or "packages" */
+      group: string
+      degree: number
+      /** graphify: node type and source location */
+      detail?: string
+      /** graphify: the node standing for a whole file */
+      isFile?: boolean
+      /** a Claude Code session touched it in the last 6 h */
+      touched?: boolean
+      live?: boolean
+    }
+  | {
       kind: 'skill'
       label: string
       name: string

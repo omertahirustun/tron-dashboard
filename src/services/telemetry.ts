@@ -10,6 +10,7 @@ export interface SystemMetrics {
   ram: { usedGb: number; totalGb: number }
   /** null when no NVIDIA GPU / nvidia-smi is available */
   vram: { name: string; usedGb: number; totalGb: number; gpuUtil: number; tempC: number } | null
+  disk: { mount: string; usedGb: number; totalGb: number } | null
   uptimeSec: number
   history: { cpu: number[]; ram: number[]; vram: number[] }
 }
@@ -48,6 +49,7 @@ export function initialMetrics(): SystemMetrics {
     cpu: { model: SIM.cpu, total: 24, threads: Array.from({ length: SIM.threads }, () => 10 + Math.random() * 30), tempC: 58 },
     ram: { usedGb: 9.4, totalGb: SIM.ramGb },
     vram: { name: SIM.gpu, usedGb: 3.1, totalGb: SIM.vramGb, gpuUtil: 18, tempC: 46 },
+    disk: { mount: '/', usedGb: 544, totalGb: 754 },
     uptimeSec: 0,
     history: { cpu: [], ram: [], vram: [] },
   }
@@ -63,6 +65,7 @@ export function applySample(prev: SystemMetrics, s: MetricsSample): SystemMetric
     cpu: { model: shortCpuName(s.cpu.model), total: s.cpu.total, threads: s.cpu.threads, tempC: s.cpu.tempC },
     ram: s.ram,
     vram: s.vram ? { ...s.vram, name: s.vram.name.replace(/^NVIDIA GeForce /, '') } : null,
+    disk: s.disk,
     uptimeSec: s.uptimeSec,
     history: {
       cpu: push(h.cpu, s.cpu.total),
@@ -95,6 +98,7 @@ export function nextMetrics(m: SystemMetrics): SystemMetrics {
       gpuUtil: clamp(vramPct * 0.9 + jitter(20), 0, 100),
       tempC: clamp(38 + vramPct * 0.4 + jitter(2), 35, 90),
     },
+    disk: m.disk,
     uptimeSec: m.uptimeSec + 2,
     history: { cpu: push(m.history.cpu, cpuTotal), ram: push(m.history.ram, ramPct), vram: push(m.history.vram, vramPct) },
   }

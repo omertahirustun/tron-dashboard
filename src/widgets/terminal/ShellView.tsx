@@ -2,8 +2,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useEffect, useRef } from 'react'
+import { handleZoomKey, termFont } from '../../lib/termFont'
 import { native } from '../../native/api'
-import { useOfficeStore } from '../../store/useOfficeStore'
 
 // "The Grid" palette mapped onto the 16 ANSI colours
 const THEME = {
@@ -30,9 +30,25 @@ const THEME = {
   brightWhite: '#ffffff',
 }
 
-/** Real shell (fish, else bash) running in the main process via a PTY. */
-export function ShellView() {
+export interface ShellViewProps {
+  /** pane id; the main process keeps one shell per id */
+  id: string
+  /** focused pane: xterm takes the keyboard */
+  focused: boolean
+  /** keys the window handles itself (new / close / move focus); xterm ignores them */
+  isWindowKey: (e: KeyboardEvent) => boolean
+  onFocus: () => void
+}
+
+/** One real shell (fish, else bash) running in the main process via a PTY. */
+export function ShellView({ id, focused, isWindowKey, onFocus }: ShellViewProps) {
   const host = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
+  // latest callbacks without re-creating the terminal
+  const cb = useRef({ isWindowKey, onFocus })
+  useEffect(() => {
+    cb.current = { isWindowKey, onFocus }
+  }, [isWindowKey, onFocus])
 
   useEffect(() => {
     const el = host.current
@@ -44,7 +60,7 @@ export function ShellView() {
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 12,
+      fontSize: termFont.get(),
       lineHeight: 1.15,
       theme: THEME,
       allowTransparency: true,
@@ -52,14 +68,16 @@ export function ShellView() {
       cursorStyle: 'block',
       scrollback: 5000,
     })
+    termRef.current = term
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // zoom keys and the window's own keys never reach the shell
+    term.attachCustomKeyEventHandler((e) => !handleZoomKey(e) && !cb.current.isWindowKey(e))
 
     const start = async () => {
-      const { backlog, shell, restarted } = await api.startShell(term.cols, term.rows)
+      const { backlog } = await api.startShell(id, term.cols, term.rows)
       if (disposed) return
       if (backlog) term.write(backlog)
-      if (restarted) useOfficeStore.getState().addTerminalLog(`[LOG] ${shell} session started`, { source: 'pty', level: 'ok' })
     }
 
     // fonts must be ready before xterm measures its character cell
@@ -67,16 +85,17 @@ export function ShellView() {
       if (disposed) return
       term.open(el)
       fit.fit()
-      cleanups.push(api.onShellData((data) => term.write(data)))
+      term.textarea?.addEventListener('focus', () => cb.current.onFocus())
+      cleanups.push(api.onShellData((e) => e.id === id && term.write(e.data)))
       cleanups.push(
-        api.onShellExit(({ code }) => {
+        api.onShellExit((e) => {
+          if (e.id !== id) return
           exited = true
-          term.write(`\r\n\x1b[38;2;255;140;0m[process exited with code ${code ?? '?'}; press Enter to start a new shell]\x1b[0m\r\n`)
-          useOfficeStore.getState().addTerminalLog(`[LOG] shell exited (${code ?? '?'})`, { source: 'pty', level: 'warn' })
+          term.write(`\r\n\x1b[38;2;255;140;0m[process exited with code ${e.code ?? '?'}; press Enter for a new shell]\x1b[0m\r\n`)
         }),
       )
       const input = term.onData((data) => {
-        if (!exited) return api.writeShell(data)
+        if (!exited) return api.writeShell(id, data)
         if (data === '\r') {
           exited = false
           term.clear()
@@ -86,14 +105,14 @@ export function ShellView() {
       cleanups.push(() => input.dispose())
       void start()
 
-      // keep the PTY size in step with the panel
+      // keep the PTY size in step with the pane
       let raf = 0
       const ro = new ResizeObserver(() => {
         cancelAnimationFrame(raf)
         raf = requestAnimationFrame(() => {
           if (!el.clientWidth || !el.clientHeight) return
           fit.fit()
-          api.resizeShell(term.cols, term.rows)
+          api.resizeShell(id, term.cols, term.rows)
         })
       })
       ro.observe(el)
@@ -101,21 +120,44 @@ export function ShellView() {
         ro.disconnect()
         cancelAnimationFrame(raf)
       })
+
+      // font size: shared setting, refit so the PTY gets the new rows/columns
+      cleanups.push(
+        termFont.subscribe(() => {
+          term.options.fontSize = termFont.get()
+          fit.fit()
+          api.resizeShell(id, term.cols, term.rows)
+        }),
+      )
+      const onWheel = (e: WheelEvent) => {
+        if (!e.ctrlKey) return
+        e.preventDefault()
+        e.stopPropagation() // not a scroll for xterm
+        termFont.step(e.deltaY < 0 ? 1 : -1)
+      }
+      // capture: before xterm's own wheel handling
+      el.addEventListener('wheel', onWheel, { passive: false, capture: true })
+      cleanups.push(() => el.removeEventListener('wheel', onWheel, { capture: true }))
     })
 
     return () => {
       disposed = true
+      termRef.current = null
       cleanups.forEach((c) => c())
       term.dispose()
     }
-  }, [])
+  }, [id])
+
+  useEffect(() => {
+    if (focused) termRef.current?.focus()
+  }, [focused])
 
   if (!native)
     return (
       <div className="flex h-full items-center justify-center p-4 text-center text-[12px] text-dim">
-        The live shell runs in the desktop app (npm run app). In the browser, type a message to chat with Claude.
+        The live shell runs in the desktop app (npm run app).
       </div>
     )
 
-  return <div ref={host} className="no-drag h-full w-full px-2 pt-1" aria-label="Shell" />
+  return <div ref={host} className="h-full w-full px-2 pt-1" aria-label="Shell" onMouseDown={onFocus} />
 }

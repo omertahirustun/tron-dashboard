@@ -68,8 +68,20 @@ function stopGpuMonitor() {
   proc?.kill()
 }
 
+// root file system, like `df /` (statfs is one cheap syscall)
+async function disk() {
+  try {
+    const st = await fs.promises.statfs('/')
+    const GB = 1024 ** 3
+    const total = (st.blocks * st.bsize) / GB
+    return { mount: '/', usedGb: total - (st.bavail * st.bsize) / GB, totalGb: total }
+  } catch {
+    return null
+  }
+}
+
 async function sample() {
-  const [mem, temp] = await Promise.all([si.mem(), si.cpuTemperature().catch(() => null)])
+  const [mem, temp, storage] = await Promise.all([si.mem(), si.cpuTemperature().catch(() => null), disk()])
   const gpu = gpuLatest
   const cpu = cpuLoad()
   const GB = 1024 ** 3
@@ -83,6 +95,7 @@ async function sample() {
     // "available" counts reclaimable cache as free, like `free -h`
     ram: { usedGb: (mem.total - mem.available) / GB, totalGb: mem.total / GB },
     vram: gpu,
+    disk: storage,
     uptimeSec: os.uptime(),
     at: Date.now(),
   }

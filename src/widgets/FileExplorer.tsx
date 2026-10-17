@@ -55,6 +55,35 @@ function iconFor(entry: Entry, open: boolean): { Icon: LucideIcon; color: string
   return { Icon: FileText, color: 'text-dim' }
 }
 
+const inside = (p: string, root: string) => p === root || p.startsWith(root === '/' ? '/' : root + '/')
+
+/** The most specific root holding `path`: a project folder before ~, ~ before / */
+function deepestRoot(path: string, roots: Array<{ path: string }>) {
+  return roots.filter((r) => inside(path, r.path)).sort((a, b) => b.path.length - a.path.length)[0]?.path
+}
+
+/** Folders to open to reveal `selected`: only those under its most specific root, so the
+ * same file isn't also unfolded under ~ and / */
+function underRoot(selected: string, roots: Array<{ path: string }>) {
+  const root = deepestRoot(selected, roots)
+  return (p: string) => !!root && inside(p, root)
+}
+
+// open folders and the selected file, restored on the next start
+const STATE_KEY = 'aod.explorer.v1'
+interface SavedState {
+  expanded: string[]
+  selected: string
+}
+function loadState(): SavedState | null {
+  try {
+    const raw = localStorage.getItem(STATE_KEY)
+    return raw ? (JSON.parse(raw) as SavedState) : null
+  } catch {
+    return null
+  }
+}
+
 interface Row {
   entry: Entry
   depth: number
@@ -107,25 +136,46 @@ export function FileExplorer() {
     }
   }
 
-  // desktop: load the workspace roots and open the first one
+  // desktop: load the workspace roots and reopen the folders that were open
+  // (last session's on start, the current ones on refresh); first root otherwise
+  const restored = useRef(false)
   const loadRoots = () =>
     native
       ?.getWorkspaceRoots()
       .then(async (list) => {
-        useOfficeStore.getState().setWorkspaceRoots(list)
-        const first = list[0]?.path
+        const api = native!
+        const store = useOfficeStore.getState()
+        store.setWorkspaceRoots(list)
+        const saved = restored.current ? null : loadState()
+        const wanted = saved ? saved.expanded : [...expanded]
+        const open = wanted.filter((p) => list.some((r) => inside(p, r.path)))
+        if (!open.length && list[0]) open.push(list[0].path)
         const tops = list.map((r) => ({ name: r.name, path: r.path, kind: 'dir' as const, isRoot: true, isGit: r.isGit }))
         const map = new Map<string, Entry[]>([['', tops]])
-        if (first) map.set(first, (await native!.readDir(first)).entries)
+        // folders that are gone are dropped from the open set
+        const read = await Promise.all(open.map((dir) => api.readDir(dir).then((r) => [dir, r.entries] as const, () => null)))
+        for (const r of read) if (r) map.set(r[0], r[1])
         setChildren(map)
-        setExpanded(new Set(first ? [first] : []))
+        setExpanded(new Set(open.filter((dir) => map.has(dir))))
         setError(null)
+        if (saved?.selected && !restored.current && !store.selectedFile) store.selectFile(saved.selected)
+        restored.current = true
       })
       .catch((e: Error) => setError(e.message))
+
+  useEffect(() => {
+    if (!native || !restored.current) return
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify({ expanded: [...expanded], selected } satisfies SavedState))
+    } catch {
+      // storage blocked: nothing is remembered
+    }
+  }, [expanded, selected])
 
   const workspaceRev = useOfficeStore((s) => s.workspaceRev)
   useEffect(() => {
     void loadRoots()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the root list changes
   }, [workspaceRev])
 
   // reveal files selected elsewhere (e.g. a file node in the topology graph):
@@ -134,13 +184,13 @@ export function FileExplorer() {
   const [revealed, setRevealed] = useState(selected)
   if (revealed !== selected) {
     setRevealed(selected)
-    const inTree = (p: string) => (native ? roots.some((r) => p === r.path || p.startsWith(r.path + '/')) : !!p)
+    const inTree = native ? underRoot(selected, roots) : (p: string) => !!p
     const missing = parentPaths(selected).filter((p) => inTree(p) && !expanded.has(p))
     if (missing.length) setExpanded(new Set([...expanded, ...missing]))
   }
   useEffect(() => {
     if (!native) return
-    const dirs = parentPaths(selected).filter((p) => roots.some((r) => p === r.path || p.startsWith(r.path + '/')))
+    const dirs = parentPaths(selected).filter(underRoot(selected, roots))
     ensureLoaded(dirs)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the selection changes
   }, [selected])
@@ -170,7 +220,7 @@ export function FileExplorer() {
     if (open) ensureLoaded([path])
   }
 
-  const rootOf = (path: string) => roots.find((r) => path === r.path || path.startsWith(r.path + '/'))?.path
+  const rootOf = (path: string) => deepestRoot(path, roots)
 
   function openFile(entry: Entry) {
     sfx.emit('select', { source: 'explorer.file', path: entry.path })

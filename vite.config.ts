@@ -8,7 +8,8 @@ const CSP = [
   "default-src 'self' file:",
   "script-src 'self' file:",
   "style-src 'self' file: 'unsafe-inline'",
-  "img-src 'self' file: data:",
+  // album art from YouTube Music
+  "img-src 'self' file: data: https://*.googleusercontent.com https://*.ggpht.com https://i.ytimg.com",
   "font-src 'self' file: data:",
   "connect-src 'self' file:",
   "object-src 'none'",

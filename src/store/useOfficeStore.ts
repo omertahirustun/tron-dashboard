@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { native, type ClaudeStats, type ProbeResult, type TaskInfo, type TaskStatus, type WorkspaceRoot } from '../native/api'
+import { native, type ClaudeStats, type PermissionRequest, type ProbeResult, type WorkspaceRoot } from '../native/api'
 import { initialMetrics, type SystemMetrics } from '../services/telemetry'
 
 // One store for everything widgets share. Widgets read slices with selectors,
@@ -15,9 +15,6 @@ export interface LogEntry {
   level: LogLevel
   text: string
 }
-
-export type { TaskStatus }
-export type Task = TaskInfo
 
 /** Model the chat panel talks to (the API call itself is still simulated). */
 export type ChatModel = 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5' | 'claude-fable-5-1'
@@ -42,6 +39,17 @@ const SAMPLE_AGENTS: AgentOption[] = [
   { id: 'Haiku_Scout', label: 'Haiku_Scout' },
 ]
 
+export interface AgentConsoleTarget {
+  sessionId: string
+  /** PTY pane already known to run it (a just-started agent has no transcript yet) */
+  pane?: string | null
+  cwd?: string | null
+  /** stopped with ■: don't resume it again on its own */
+  stopped?: boolean
+  /** screen rect the console grows out of (the clicked card) */
+  origin?: { x: number; y: number; width: number; height: number } | null
+}
+
 interface OfficeState {
   terminalLogs: LogEntry[]
   /** topology node id of the agent the chat talks to */
@@ -49,41 +57,45 @@ interface OfficeState {
   activeAgentLabel: string
   agentOptions: AgentOption[]
   systemMetrics: SystemMetrics
-  taskQueue: Task[]
   chat: ChatMessage[]
   /** Workspace path selected in the explorer or the topology graph */
   selectedFile: string
   /** Folders shown in the explorer (desktop app); git intel follows `activeRoot` */
   workspaceRoots: WorkspaceRoot[]
   activeRoot: string | null
+  /** git repo of the last selected file that is in one (git intel and the code globe follow it) */
+  activeRepo: string | null
+  /** false when the selected file is not inside any git repo */
+  selectedInRepo: boolean
   /** bumped when the root list changes so the explorer reloads */
   workspaceRev: number
   networkStatus: ProbeResult[]
   claudeStats: ClaudeStats | null
   chatModel: ChatModel
+  /** permission prompts waiting for an answer, oldest first */
+  permissions: PermissionRequest[]
+  /** session shown in the agent console overlay (null: closed) */
+  agentConsole: AgentConsoleTarget | null
 
   addTerminalLog: (text: string, opts?: { source?: string; level?: LogLevel }) => void
   clearTerminalLogs: () => void
   updateSystemMetrics: (next: SystemMetrics | ((prev: SystemMetrics) => SystemMetrics)) => void
-  setTaskStatus: (id: string, status: TaskStatus) => void
   setActiveAgent: (id: string) => void
   setAgentOptions: (options: AgentOption[]) => void
   selectFile: (path: string) => void
   setWorkspaceRoots: (roots: WorkspaceRoot[]) => void
   setActiveRoot: (root: string) => void
+  setActiveRepo: (repo: string) => void
   reloadWorkspace: () => void
-  setTasks: (tasks: Task[]) => void
   setNetworkStatus: (results: ProbeResult[]) => void
   setClaudeStats: (stats: ClaudeStats) => void
   setChatModel: (model: ChatModel) => void
+  setPermissions: (requests: PermissionRequest[]) => void
+  openConsole: (target: AgentConsoleTarget | null) => void
   addChatMessage: (msg: Omit<ChatMessage, 'id'>) => number
   appendToChatMessage: (id: number, delta: string) => void
   finishChatMessage: (id: number) => void
   clearChat: () => void
-}
-
-function sampleTask(id: string, name: string, command: string, status: TaskStatus, extra: Partial<Task> = {}): Task {
-  return { id, name, command, status, startedAt: null, endedAt: null, exitCode: null, runAt: null, lastLine: '', ...extra }
 }
 
 const MAX_LOGS = 300
@@ -91,19 +103,12 @@ let logId = 0
 let chatId = 0
 const stamp = () => new Date().toLocaleTimeString('en-GB', { hour12: false })
 
-export const useOfficeStore = create<OfficeState>()((set) => ({
+export const useOfficeStore = create<OfficeState>()((set, get) => ({
   terminalLogs: [],
   activeAgent: 'Claude_Prime',
   activeAgentLabel: 'Claude_Prime',
   agentOptions: SAMPLE_AGENTS,
   systemMetrics: initialMetrics(),
-  // browser sample; the desktop app replaces it with real tasks from settings.json
-  taskQueue: [
-    sampleTask('dev', 'dev server', 'npm run dev', 'running', { longRunning: true, startedAt: Date.now() - 754_000 }),
-    sampleTask('typecheck', 'type check', 'npx tsc -b', 'done', { exitCode: 0, startedAt: Date.now() - 95_000, endedAt: Date.now() - 88_000 }),
-    sampleTask('index', 'vault index', 'agent_beta index vault/', 'idle'),
-    sampleTask('deploy', 'deploy preview', 'vercel deploy --prebuilt', 'scheduled', { runAt: Date.now() + 300_000 }),
-  ],
   chat: [
     {
       id: chatId++,
@@ -115,10 +120,14 @@ export const useOfficeStore = create<OfficeState>()((set) => ({
   selectedFile: native ? '' : 'vault/projects/agent-office.md',
   workspaceRoots: [],
   activeRoot: null,
+  activeRepo: null,
+  selectedInRepo: true,
   workspaceRev: 0,
   networkStatus: [],
   claudeStats: null,
   chatModel: 'claude-opus-5-5',
+  permissions: [],
+  agentConsole: null,
 
   addTerminalLog: (text, { source = 'sys', level = 'info' } = {}) =>
     set((s) => ({
@@ -129,15 +138,6 @@ export const useOfficeStore = create<OfficeState>()((set) => ({
   updateSystemMetrics: (next) =>
     set((s) => ({ systemMetrics: typeof next === 'function' ? next(s.systemMetrics) : next })),
 
-  setTaskStatus: (id, status) =>
-    set((s) => ({
-      taskQueue: s.taskQueue.map((t) =>
-        t.id === id
-          ? { ...t, status, ...(status === 'running' ? { startedAt: Date.now(), endedAt: null, runAt: null } : {}), ...(status === 'done' || status === 'failed' ? { endedAt: Date.now() } : {}) }
-          : t,
-      ),
-    })),
-
   setActiveAgent: (id) =>
     set((s) => ({ activeAgent: id, activeAgentLabel: s.agentOptions.find((a) => a.id === id)?.label ?? id })),
   // keep the current agent while it still exists, else fall back to the first one
@@ -146,18 +146,31 @@ export const useOfficeStore = create<OfficeState>()((set) => ({
       const keep = options.find((a) => a.id === s.activeAgent) ?? options[0]
       return { agentOptions: options, activeAgent: keep?.id ?? '', activeAgentLabel: keep?.label ?? '' }
     }),
-  selectFile: (path) => set({ selectedFile: path }),
+  selectFile: (path) => {
+    set({ selectedFile: path })
+    if (!native || !path) return
+    void native.repoOf(path).then(
+      (repo) => {
+        if (get().selectedFile !== path) return // a newer selection won
+        set(repo ? { activeRepo: repo, selectedInRepo: true } : { selectedInRepo: false })
+      },
+      () => {},
+    )
+  },
   setWorkspaceRoots: (roots) =>
     set((s) => ({
       workspaceRoots: roots,
       activeRoot: s.activeRoot && roots.some((r) => r.path === s.activeRoot) ? s.activeRoot : (roots[0]?.path ?? null),
+      activeRepo: s.activeRepo ?? roots.find((r) => r.isGit)?.path ?? null,
     })),
   setActiveRoot: (root) => set({ activeRoot: root }),
+  setActiveRepo: (repo) => set({ activeRepo: repo, selectedInRepo: true }),
   reloadWorkspace: () => set((s) => ({ workspaceRev: s.workspaceRev + 1 })),
-  setTasks: (tasks) => set({ taskQueue: tasks }),
   setNetworkStatus: (results) => set({ networkStatus: results }),
   setClaudeStats: (stats) => set({ claudeStats: stats }),
   setChatModel: (model) => set({ chatModel: model }),
+  setPermissions: (requests) => set({ permissions: requests }),
+  openConsole: (target) => set({ agentConsole: target }),
 
   addChatMessage: (msg) => {
     const id = chatId++

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ArrowDown, ArrowUp, GitBranch, GitMerge, RefreshCw } from 'lucide-react'
+import { ArrowDown, ArrowUp, ExternalLink, GitBranch, GitMerge, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { TronButton } from '../components/TronButton'
 import { Widget } from '../components/Widget'
@@ -17,6 +17,7 @@ const SAMPLE: GitStatus = {
   changed: 2,
   ahead: 1,
   behind: 0,
+  remote: 'https://github.com/omertahirustun/agent-office',
   commits: [
     { hash: '5dce5da', subject: 'F2/F3 work while the terminal has focus', author: ME, when: '2 hours ago', merge: false },
     { hash: 'ca21aff', subject: 'Terminal opens above the scene', author: ME, when: '3 hours ago', merge: false },
@@ -27,10 +28,9 @@ const SAMPLE: GitStatus = {
 }
 
 export function GitIntel() {
-  const roots = useOfficeStore((s) => s.workspaceRoots)
-  const activeRoot = useOfficeStore((s) => s.activeRoot)
-  // follow the explorer's root when it is a repo, else the first repo
-  const repo = roots.find((r) => r.path === activeRoot && r.isGit)?.path ?? roots.find((r) => r.isGit)?.path ?? null
+  // the repo of the file last selected in the explorer or topology
+  const repo = useOfficeStore((s) => s.activeRepo)
+  const inRepo = useOfficeStore((s) => s.selectedInRepo)
 
   const [status, setStatus] = useState<GitStatus | null>(native ? null : SAMPLE)
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +93,7 @@ export function GitIntel() {
     >
       {!repo && native ? (
         <p className="text-[12px] text-dim">
-          None of the workspace folders is a git repository. Add one with <span className="text-cyan">:workspace add &lt;path&gt;</span> in the terminal.
+          Select a file inside a git repository (in the explorer or the topology) and its repo shows up here.
         </p>
       ) : error ? (
         <p className="text-[12px] text-crit">git failed: {error}</p>
@@ -101,6 +101,27 @@ export function GitIntel() {
         <p className="text-[12px] text-dim">Reading repository…</p>
       ) : (
         <div className="space-y-3">
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="truncate text-dim" title={status.repo}>
+              {status.repo.replace(/^\/home\/[^/]+/, '~')}
+            </span>
+            {status.remote ? (
+              <a
+                href={status.remote}
+                target="_blank"
+                rel="noreferrer"
+                className="no-drag ml-auto inline-flex shrink-0 items-center gap-1 text-cyan hover:underline"
+                title={status.remote}
+                onClick={() => sfx.emit('click', { source: 'git.remote' })}
+              >
+                {status.remote.replace(/^https:\/\/(www\.)?/, '').replace(/^github\.com\//, '')}
+                <ExternalLink size={11} aria-hidden />
+              </a>
+            ) : (
+              <span className="ml-auto shrink-0 text-dim/70">no remote</span>
+            )}
+          </div>
+          {!inRepo && <p className="text-[11px] text-orange/80">The selected file is not in a git repo; showing the last one.</p>}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
             <span className="inline-flex items-center gap-1.5 font-bold text-cyan [text-shadow:0_0_8px_rgb(13_230_255/0.5)]">
               <GitBranch size={13} aria-hidden />

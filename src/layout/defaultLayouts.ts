@@ -6,41 +6,49 @@ type Item = Omit<Layout, 'i'> & { i: WidgetId }
 export const BREAKPOINTS = { lg: 1280, md: 900, sm: 0 }
 export const COLS = { lg: 12, md: 8, sm: 1 }
 export type Breakpoint = keyof typeof BREAKPOINTS
-export const ROW_HEIGHT = 32
+/**
+ * lg and md always fill the window exactly: the grid has ROWS rows and the row
+ * height is worked out from the window height, so the page never scrolls.
+ * sm (narrow browser windows only; the app's minimum width is 900) scrolls.
+ */
+export const ROWS = 24
+export const SM_ROW_HEIGHT = 32
 
-// lg: three columns over a full-width command center
-//  ┌explorer┐┌────topology────┐┌telemetry┐
-//  ├github──┤│                │├claude───┤
+// lg: three columns, every column exactly ROWS tall
+//  ┌explorer┐┌──agents.live───┐┌telemetry┐
+//  │        │├────topology────┤├claude───┤
+//  ├github──┤│   (graphify)   ││         │
 //  ├music───┤│                │├network──┤
-//  └────────┘└────────────────┘└tasks────┘
-//  ┌──────────────terminal──────────────┐
+//  │        ││                │├todo─────┤
+//  └────────┘└────────────────┘└─────────┘
 const lg: Item[] = [
-  { i: 'explorer', x: 0, y: 0, w: 3, h: 9, minW: 2, minH: 4 },
-  { i: 'github', x: 0, y: 9, w: 3, h: 8, minW: 2, minH: 4 },
+  { i: 'explorer', x: 0, y: 0, w: 3, h: 10, minW: 2, minH: 4 },
+  { i: 'github', x: 0, y: 10, w: 3, h: 7, minW: 2, minH: 4 },
   { i: 'music', x: 0, y: 17, w: 3, h: 7, minW: 2, minH: 5 },
-  { i: 'topology', x: 3, y: 0, w: 6, h: 24, minW: 3, minH: 6 },
-  { i: 'telemetry', x: 9, y: 0, w: 3, h: 8, minW: 2, minH: 7 },
-  { i: 'claude', x: 9, y: 8, w: 3, h: 7, minW: 2, minH: 6 },
-  { i: 'network', x: 9, y: 15, w: 3, h: 4, minW: 2, minH: 3 },
-  { i: 'tasks', x: 9, y: 19, w: 3, h: 5, minW: 2, minH: 3 },
-  { i: 'terminal', x: 0, y: 24, w: 12, h: 10, minW: 4, minH: 6 },
+  { i: 'agents', x: 3, y: 0, w: 6, h: 6, minW: 3, minH: 4 },
+  { i: 'topology', x: 3, y: 6, w: 6, h: 18, minW: 3, minH: 6 },
+  { i: 'telemetry', x: 9, y: 0, w: 3, h: 5, minW: 2, minH: 4 },
+  { i: 'claude', x: 9, y: 5, w: 3, h: 6, minW: 2, minH: 5 },
+  { i: 'network', x: 9, y: 11, w: 3, h: 6, minW: 2, minH: 3 },
+  { i: 'todo', x: 9, y: 17, w: 3, h: 7, minW: 2, minH: 4 },
 ]
 
+// md: agents and graph on the left, everything else in two narrower columns
 const md: Item[] = [
-  { i: 'topology', x: 0, y: 0, w: 8, h: 12 },
-  { i: 'explorer', x: 0, y: 12, w: 4, h: 8 },
-  { i: 'telemetry', x: 4, y: 12, w: 4, h: 8 },
-  { i: 'github', x: 0, y: 20, w: 4, h: 7 },
-  { i: 'claude', x: 4, y: 20, w: 4, h: 7 },
-  { i: 'music', x: 0, y: 27, w: 4, h: 6 },
-  { i: 'network', x: 4, y: 27, w: 4, h: 4 },
-  { i: 'tasks', x: 4, y: 31, w: 4, h: 5 },
-  { i: 'terminal', x: 0, y: 36, w: 8, h: 11 },
+  { i: 'agents', x: 0, y: 0, w: 4, h: 6 },
+  { i: 'topology', x: 0, y: 6, w: 4, h: 10 },
+  { i: 'explorer', x: 0, y: 16, w: 2, h: 8 },
+  { i: 'todo', x: 2, y: 16, w: 2, h: 8 },
+  { i: 'telemetry', x: 4, y: 0, w: 4, h: 5 },
+  { i: 'claude', x: 4, y: 5, w: 2, h: 7 },
+  { i: 'network', x: 6, y: 5, w: 2, h: 7 },
+  { i: 'github', x: 4, y: 12, w: 2, h: 12 },
+  { i: 'music', x: 6, y: 12, w: 2, h: 12 },
 ]
 
-const smOrder: WidgetId[] = ['terminal', 'telemetry', 'explorer', 'topology', 'claude', 'tasks', 'network', 'github', 'music']
+const smOrder: WidgetId[] = ['agents', 'telemetry', 'explorer', 'topology', 'todo', 'claude', 'network', 'github', 'music']
 const smHeights: Record<WidgetId, number> = {
-  terminal: 12, telemetry: 8, explorer: 8, topology: 10, claude: 7, tasks: 5, network: 4, github: 7, music: 6,
+  agents: 7, todo: 8, telemetry: 5, explorer: 8, topology: 12, claude: 7, network: 6, github: 7, music: 6,
 }
 let y = 0
 const sm: Item[] = smOrder.map((i) => {

@@ -6,6 +6,38 @@ const os = require('node:os')
 const path = require('node:path')
 
 const PROJECTS = path.join(os.homedir(), '.claude', 'projects')
+const CREDENTIALS = path.join(os.homedir(), '.claude', '.credentials.json')
+const LIMITS_URL = 'https://api.anthropic.com/api/oauth/usage'
+const LIMITS_EVERY_MS = 60_000
+
+/**
+ * Plan limits (5-hour session window and the weekly one) as claude.ai shows them.
+ * Uses the OAuth token Claude Code keeps in ~/.claude/.credentials.json; Claude
+ * Code refreshes it, so the file is re-read on every call. Only sent to Anthropic.
+ */
+async function fetchLimits() {
+  let token
+  try {
+    const creds = JSON.parse(fs.readFileSync(CREDENTIALS, 'utf8')).claudeAiOauth
+    if (creds?.expiresAt && creds.expiresAt < Date.now()) return { error: 'login expired, run claude once' }
+    token = creds?.accessToken
+  } catch {
+    return { error: 'not logged in to Claude Code' }
+  }
+  if (!token) return { error: 'not logged in to Claude Code' }
+  try {
+    const res = await fetch(LIMITS_URL, {
+      headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return { error: `HTTP ${res.status}` }
+    const body = await res.json()
+    const window = (w) => (w && typeof w.utilization === 'number' ? { pct: w.utilization, resetsAt: Date.parse(w.resets_at) || null } : null)
+    return { fiveHour: window(body.five_hour), sevenDay: window(body.seven_day), at: Date.now() }
+  } catch (err) {
+    return { error: err.name === 'TimeoutError' ? 'timeout' : (err.cause?.code ?? err.message) }
+  }
+}
 
 // $/1M tokens and context windows (claude-api skill table, cached 2026-10-06).
 // Cache writes bill 1.25x input (5-minute TTL) or 2x (1-hour TTL). Haiku 5.5's
@@ -33,6 +65,15 @@ function createClaudeUsage(settings, emit, intervalMs = 10000) {
   let today = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0, requests: 0 }
   let session = null // newest assistant turn across all transcripts
   let timer = null
+  let limitsTimer = null
+  let limits = null
+
+  async function pollLimits() {
+    const next = await fetchLimits()
+    // keep the last good reading through a failed poll, marked with the error
+    limits = next.error && limits?.fiveHour ? { ...limits, error: next.error } : next
+    publish()
+  }
 
   function resetDay() {
     day = startOfToday()
@@ -122,6 +163,7 @@ function createClaudeUsage(settings, emit, intervalMs = 10000) {
       session: session && { ...session, cwd: session.cwd ? path.basename(session.cwd) : null },
       today: { ...today },
       budgetUsd: settings.get().dailyBudgetUsd,
+      limits,
       models: Object.entries(MODELS)
         .filter(([id]) => id !== 'claude-haiku-4-5')
         .map(([id, m]) => ({ id, label: m.label, window: m.window, input: m.input, output: m.output })),
@@ -135,10 +177,13 @@ function createClaudeUsage(settings, emit, intervalMs = 10000) {
       if (timer) return
       scan()
       timer = setInterval(scan, intervalMs)
+      void pollLimits()
+      limitsTimer = setInterval(pollLimits, LIMITS_EVERY_MS)
     },
     stop() {
       clearInterval(timer)
-      timer = null
+      clearInterval(limitsTimer)
+      timer = limitsTimer = null
     },
     stats,
   }

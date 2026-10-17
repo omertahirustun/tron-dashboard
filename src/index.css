@@ -323,11 +323,216 @@ body {
   }
 }
 
+/* ── agents.live cards: orange while working, cyan when it's your turn ── */
+.agent-card {
+  border-color: rgb(13 230 255 / 0.18);
+  background: rgb(4 12 16 / 0.55);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.agent-card:hover,
+.agent-card:focus-visible {
+  border-color: var(--color-cyan);
+  outline: none;
+}
+.agent-card[data-state='busy'] {
+  border-color: rgb(255 140 0 / 0.55);
+  box-shadow: inset 0 0 18px -8px rgb(255 140 0 / 0.7);
+}
+.agent-card[data-state='waiting'] {
+  border-color: rgb(13 230 255 / 0.45);
+}
+.agent-card[data-state='ask'] {
+  border-color: var(--color-orange);
+  box-shadow: 0 0 22px -8px rgb(255 140 0 / 0.9);
+}
+.agent-card[data-state='idle'] {
+  opacity: 0.6;
+}
+/* permission answers (lang="en" on them: the page is Turkish, and "i" would upper-case to "İ") */
+.perm-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: background-color 0.15s, color 0.15s;
+}
+.perm-btn:disabled {
+  opacity: 0.4;
+}
+.perm-allow {
+  border-color: var(--color-ok);
+  color: var(--color-ok);
+}
+.perm-allow:hover {
+  background: var(--color-ok);
+  color: var(--color-void);
+}
+.perm-always {
+  border-color: var(--color-cyan-line);
+  color: var(--color-cyan);
+}
+.perm-always:hover {
+  background: var(--color-cyan-soft);
+}
+.perm-deny {
+  border-color: rgb(255 46 77 / 0.6);
+  color: var(--color-crit);
+}
+.perm-deny:hover {
+  background: var(--color-crit);
+  color: var(--color-void);
+}
+
+/* agent console: a big terminal grown out of an agents.live card */
+.agent-console {
+  will-change: transform, opacity;
+  border-color: var(--color-cyan);
+  background: rgb(3 9 11 / 0.97);
+  box-shadow:
+    0 0 0 1px rgb(13 230 255 / 0.15),
+    0 0 60px -10px rgb(13 230 255 / 0.55),
+    inset 0 0 40px -20px rgb(13 230 255 / 0.5);
+  /* only the top-left corner is cut: the bottom-right one is the resize grip */
+  clip-path: polygon(var(--bevel) 0, 100% 0, 100% 100%, 0 100%, 0 var(--bevel));
+}
+.agent-console[data-maximized] {
+  clip-path: none;
+}
+
+/* agent console resize handles: thin strips on the edges, squares at the corners */
+.console-grip {
+  position: absolute;
+  z-index: 3;
+}
+.console-grip[data-edge='n'],
+.console-grip[data-edge='s'] {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.console-grip[data-edge='n'] {
+  top: 0;
+}
+.console-grip[data-edge='s'] {
+  bottom: 0;
+}
+.console-grip[data-edge='e'],
+.console-grip[data-edge='w'] {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.console-grip[data-edge='e'] {
+  right: 0;
+}
+.console-grip[data-edge='w'] {
+  left: 0;
+}
+.console-grip[data-edge$='e'][data-edge^='n'],
+.console-grip[data-edge$='w'][data-edge^='n'],
+.console-grip[data-edge$='e'][data-edge^='s'],
+.console-grip[data-edge$='w'][data-edge^='s'] {
+  width: 14px;
+  height: 14px;
+}
+.console-grip[data-edge='ne'] {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.console-grip[data-edge='nw'] {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.console-grip[data-edge='sw'] {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+/* the visible one: Tron hatching in the bottom-right corner */
+.console-grip[data-edge='se'] {
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 45%,
+    var(--color-cyan) 45% 52%,
+    transparent 52% 64%,
+    var(--color-cyan) 64% 71%,
+    transparent 71% 83%,
+    var(--color-cyan) 83% 90%,
+    transparent 90%
+  );
+  opacity: 0.55;
+}
+.console-grip[data-edge='se']:hover {
+  opacity: 1;
+}
+/* while moving/resizing: no text selection, and the terminal doesn't eat the pointer */
+body.console-gesture {
+  user-select: none;
+}
+body.console-gesture .xterm {
+  pointer-events: none;
+}
+.agent-console-scan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--color-cyan), #fff, var(--color-cyan), transparent);
+  box-shadow: 0 0 18px 4px rgb(13 230 255 / 0.7);
+  z-index: 2;
+}
+
+/* stepped like the other idle glows: a smooth pulse repaints the blurred panels every frame */
+.agent-pulse {
+  box-shadow: 0 0 8px var(--color-orange);
+  opacity: 0.35;
+  animation: breathe 0.8s steps(4, jump-none) infinite alternate;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .agent-pulse,
   .grid-plane,
   .glow-layer,
   .edge-flow,
   .caret {
     animation: none;
   }
+}
+
+/* ── terminal window: Hyprland-style tiles ─────────────────────────────── */
+.term-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgb(4 9 12 / 0.92);
+  border: 2px solid rgb(13 230 255 / 0.14);
+  border-radius: 3px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.term-pane.is-active {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 14px rgb(13 230 255 / 0.25);
+}
+
+.term-divider {
+  touch-action: none;
+}
+
+.term-divider:hover {
+  background: rgb(13 230 255 / 0.12);
 }

@@ -12,6 +12,9 @@ const SAMPLE: ProbeResult[] = [
   { name: 'PostgreSQL', kind: 'tcp', endpoint: '127.0.0.1:5432', at: 0, state: 'up', ms: 1.2 },
   { name: 'Supabase', kind: 'http', endpoint: 'supabase.co', at: 0, state: 'up', ms: 148 },
   { name: 'Node.js', kind: 'http', endpoint: '127.0.0.1:8787', at: 0, state: 'offline', error: 'not running' },
+  { name: 'GitHub', kind: 'http', endpoint: 'https://github.com/', at: 0, state: 'up', ms: 92 },
+  { name: 'GitHub API', kind: 'http', endpoint: 'https://api.github.com/', at: 0, state: 'up', ms: 110 },
+  { name: 'Anthropic', kind: 'http', endpoint: 'https://api.anthropic.com/', at: 0, state: 'up', ms: 64 },
 ]
 
 /** <100 ms cyan, <400 ms orange, slower or failing red */
@@ -60,13 +63,13 @@ export function NetworkPing() {
       {results.length === 0 ? (
         <p className="text-[12px] text-dim">Probing…</p>
       ) : (
-        <ul className="space-y-1.5 text-[12px]" aria-label="Service latency">
+        <ul className="space-y-1 text-[11px]" aria-label="Service latency">
           {results.map((r) => {
             const t = tone(r)
             return (
               <li key={r.name} className="flex items-center gap-2" title={`${r.endpoint}${r.status ? ` (HTTP ${r.status})` : ''}`}>
                 <span className={`size-2 shrink-0 rotate-45 ${t.dot}`} aria-hidden />
-                <span className="w-24 shrink-0 truncate text-ink">{r.name}</span>
+                <span className="w-[5.5rem] shrink-0 truncate text-ink">{r.name}</span>
                 <span className="min-w-0 flex-1 truncate text-[10px] text-dim/80">{r.endpoint.replace(/^https?:\/\//, '').split('/')[0]}</span>
                 <span className={`shrink-0 text-right tabular-nums ${t.text}`}>
                   {r.state === 'up' ? `${r.ms! < 10 ? r.ms!.toFixed(1) : Math.round(r.ms!)} ms` : r.error}
