@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion'
-import { Bell, BellOff, Lock, RotateCcw, SquareTerminal, Unlock } from 'lucide-react'
+import { Bell, BellOff, Gamepad2, Lock, RotateCcw, SquareTerminal, Unlock } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import { IdentityDisc, LightCycles } from '../components/TronChrome'
 import { TronButton } from '../components/TronButton'
+import { LightCycleGame } from '../game/LightCycleGame'
 import { chime } from '../lib/chime'
 import { sfx } from '../lib/sfx'
 import { native } from '../native/api'
@@ -116,6 +117,7 @@ export function Dashboard() {
   const rowHeight = fit ? Math.max(8, (height - 2 * PADDING - (ROWS - 1) * MARGIN) / ROWS) : SM_ROW_HEIGHT
   const [resetCount, setResetCount] = useState(0)
   const [locked, setLockedState] = useState(() => load(LOCK_KEY, false))
+  const [gameOpen, setGameOpen] = useState(false)
 
   const controls = useMemo<DashboardControls>(
     () => ({
@@ -157,6 +159,10 @@ export function Dashboard() {
                 <span className="hidden sm:inline">Terminals</span>
               </TronButton>
             )}
+            <TronButton sfxSource="toolbar.game" onClick={() => setGameOpen(true)} aria-label="Play light cycles" title="Light cycles on the Grid">
+              <Gamepad2 size={12} />
+              <span className="hidden sm:inline">Grid game</span>
+            </TronButton>
             <TronButton
               sfxSource="toolbar.lock"
               variant={locked ? 'solid' : 'ghost'}
@@ -231,6 +237,7 @@ export function Dashboard() {
         </main>
       </div>
       <AgentConsoleHost />
+      {gameOpen && <LightCycleGame onClose={() => setGameOpen(false)} />}
     </DashboardContext.Provider>
   )
 }

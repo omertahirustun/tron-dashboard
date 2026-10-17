@@ -735,3 +735,94 @@ body.console-gesture .xterm {
 .term-divider:hover {
   background: rgb(13 230 255 / 0.12);
 }
+
+/* ── light cycle game: full-window overlay ──────────────────────────── */
+.lc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  padding: 28px;
+  background: rgb(2 5 6 / 0.88);
+}
+.lc-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-cyan);
+  background: #030708;
+  box-shadow:
+    0 0 0 1px rgb(13 230 255 / 0.15),
+    0 0 60px -10px rgb(13 230 255 / 0.6);
+  clip-path: polygon(var(--bevel) 0, 100% 0, 100% calc(100% - var(--bevel)), calc(100% - var(--bevel)) 100%, 0 100%, 0 var(--bevel));
+}
+.lc-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 38px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid var(--color-cyan-line);
+}
+.lc-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #f2feff;
+  text-shadow: 0 0 8px rgb(13 230 255 / 0.9);
+}
+.lc-score {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+.lc-close {
+  display: inline-flex;
+  padding: 4px;
+  color: var(--color-dim);
+}
+.lc-close:hover {
+  color: var(--color-cyan);
+}
+.lc-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+  text-align: center;
+}
+.lc-big {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 6vw, 64px);
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: #f2feff;
+  text-shadow:
+    0 0 12px rgb(13 230 255 / 0.9),
+    0 0 40px rgb(13 230 255 / 0.5);
+}
+.lc-big[data-tone='lose'] {
+  text-shadow:
+    0 0 12px rgb(255 140 0 / 0.9),
+    0 0 40px rgb(255 140 0 / 0.5);
+}
+.lc-hint {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--color-dim);
+}
+.lc-cta {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: var(--color-cyan);
+  animation: blink 1.2s steps(1) infinite;
+}
